@@ -1,11 +1,12 @@
 "use client";
 
-import type { CSSProperties, RefObject } from "react";
+import { useState, type CSSProperties, type RefObject } from "react";
 import { Avatar, Dropdown, Tooltip } from "antd";
-import { BookOpen, Keyboard, LogOut, Settings2, Shield } from "lucide-react";
+import { BookOpen, Gift, Keyboard, LogOut, Settings2, Shield } from "lucide-react";
 import type { ItemType } from "antd/es/menu/interface";
 import Link from "next/link";
 
+import { CouponRedeemModal } from "@/components/coupon-redeem-modal";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { GitHubLink } from "@/components/layout/github-link";
 import { VersionReleaseModal } from "@/components/layout/version-release-modal";
@@ -35,6 +36,7 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const canvasTheme = canvasThemes[theme];
     const userName = user?.displayName || user?.username || "";
+    const [redeemOpen, setRedeemOpen] = useState(false);
     const credits = user?.credits ?? 0;
     const avatarUrl = user?.avatarUrl?.trim();
     const avatarText = (userName.trim()[0] || "U").toUpperCase();
@@ -48,11 +50,13 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
         { key: "user", disabled: true, label: <span className="font-medium text-current">{userName}</span> },
         ...(user?.role === "admin" ? [{ key: "admin", icon: <Shield className="size-4" />, label: <Link href="/admin">管理后台</Link> }] : []),
         ...(onOpenShortcuts ? [{ key: "shortcuts", icon: <Keyboard className="size-4" />, label: "快捷键", onClick: onOpenShortcuts }] : []),
+        { key: "redeem", icon: <Gift className="size-4" />, label: "兑换码", onClick: () => setRedeemOpen(true) },
         { type: "divider" },
         { key: "logout", icon: <LogOut className="size-4" />, label: "退出登录", onClick: logout },
     ];
 
     return (
+        <>
         <div className="inline-flex shrink-0 items-center gap-1">
             <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={naturalIconClass} style={iconStyle} aria-label="文档" title="文档">
                 <BookOpen className="size-4" />
@@ -101,5 +105,7 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                 </div>
             ) : null}
         </div>
+            <CouponRedeemModal open={redeemOpen} onClose={() => setRedeemOpen(false)} />
+    </>
     );
 }
