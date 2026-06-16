@@ -47,7 +47,7 @@ func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 	if strings.TrimSpace(modelName) == "" {
 		modelName = "grok-imagine-video"
 	}
-	channel, err := service.SelectModelChannel(modelName)
+	channel, _, err := service.SelectModelChannel(modelName)
 	if err != nil {
 		log.Printf("AI proxy select channel failed: model=%s err=%v", modelName, err)
 		Fail(w, "AI 接口请求失败")
@@ -82,13 +82,14 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	credits *= readAIRequestCount(body, contentType)
-	channel, err := service.SelectModelChannel(modelName)
+	channel, rawModel, err := service.SelectModelChannel(modelName)
 	if err != nil {
 		log.Printf("AI proxy select channel failed: model=%s err=%v", modelName, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
-	path = resolveAIProxyPath(channel.BaseURL, modelName, path)
+	body = service.ReplaceModelInBody(body, contentType, modelName, rawModel)
+	path = resolveAIProxyPath(channel.BaseURL, rawModel, path)
 	request, err := http.NewRequest(http.MethodPost, service.BuildModelChannelURL(channel, path), bytes.NewReader(body))
 	if err != nil {
 		log.Printf("AI proxy build request failed: url=%s err=%v", service.BuildModelChannelURL(channel, path), err)

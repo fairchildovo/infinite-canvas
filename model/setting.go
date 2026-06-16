@@ -15,6 +15,7 @@ type ModelChannel struct {
 	Name     string   `json:"name"`
 	BaseURL  string   `json:"baseUrl"`
 	APIKey   string   `json:"apiKey"`
+	Prefix   string   `json:"prefix" gorm:"-"`
 	Models   []string `json:"models"`
 	Weight   int      `json:"weight"`
 	Enabled  bool     `json:"enabled"`

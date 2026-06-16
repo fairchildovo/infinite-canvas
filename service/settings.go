@@ -176,27 +176,33 @@ func findSavedChannel(channel model.ModelChannel, saved []model.ModelChannel, in
 	return model.ModelChannel{}, false
 }
 
-func SelectModelChannel(modelName string) (model.ModelChannel, error) {
+func SelectModelChannel(modelName string) (model.ModelChannel, string, error) {
 	settings, err := repository.GetSettings()
 	if err != nil {
-		return model.ModelChannel{}, err
+		return model.ModelChannel{}, "", err
 	}
 	channels := modelChannelsForModel(normalizePrivateSetting(settings.Private).Channels, modelName)
 	if len(channels) == 0 {
-		return model.ModelChannel{}, errors.New("没有可用模型渠道")
+		return model.ModelChannel{}, "", errors.New("没有可用模型渠道")
 	}
 	total := 0
 	for _, channel := range channels {
 		total += channel.Weight
 	}
 	hit := rand.Intn(total)
+	selected := channels[0]
 	for _, channel := range channels {
 		hit -= channel.Weight
 		if hit < 0 {
-			return channel, nil
+			selected = channel
+			break
 		}
 	}
-	return channels[0], nil
+	rawModel, ok := MatchChannelModel(selected, modelName)
+	if !ok {
+		rawModel = modelName
+	}
+	return selected, rawModel, nil
 }
 
 func BuildModelChannelURL(channel model.ModelChannel, path string) string {
@@ -239,14 +245,7 @@ func isSeedanceModelName(modelName string) bool {
 }
 
 func enabledChannelModels(channels []model.ModelChannel) []string {
-	models := []string{}
-	for _, channel := range channels {
-		if !channel.Enabled {
-			continue
-		}
-		models = append(models, channel.Models...)
-	}
-	return uniqueModelNames(models)
+	return BuildPrefixedModelList(channels)
 }
 
 func uniqueModelNames(models []string) []string {
@@ -477,11 +476,8 @@ func modelChannelsForModel(channels []model.ModelChannel, modelName string) []mo
 		if !channel.Enabled || channel.BaseURL == "" || channel.APIKey == "" {
 			continue
 		}
-		for _, item := range channel.Models {
-			if strings.TrimSpace(item) == modelName {
-				result = append(result, channel)
-				break
-			}
+		if _, ok := MatchChannelModel(channel, modelName); ok {
+			result = append(result, channel)
 		}
 	}
 	return result

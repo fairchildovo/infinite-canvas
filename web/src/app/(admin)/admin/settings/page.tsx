@@ -40,7 +40,7 @@ const emptySettings: AdminSettings = {
     },
     private: { channels: [], promptSync: { enabled: true, cron: "*/5 * * * *" }, auth: { linuxDo: { clientId: "", clientSecret: "" } } },
 };
-const emptyChannel: AdminModelChannel = { protocol: "openai", name: "", baseUrl: "", apiKey: "", models: [], weight: 1, enabled: true, remark: "" };
+const emptyChannel: AdminModelChannel = { protocol: "openai", name: "", baseUrl: "", apiKey: "", prefix: "", models: [], weight: 1, enabled: true, remark: "" };
 
 type SettingsTabKey = "public" | "private";
 type EditorMode = "visual" | "json";
@@ -670,6 +670,11 @@ export default function AdminSettingsPage() {
                                     </Space.Compact>
                                 </Form.Item>
                             </Col>
+                            <Col span={12}>
+                                <Form.Item name="prefix" label="模型前缀">
+                                    <Input placeholder="如 a-，留空表示无前缀" />
+                                </Form.Item>
+                            </Col>
                             <Col span={24}>
                                 <Form.Item name="remark" label="备注">
                                     <Input.TextArea rows={3} />
@@ -875,6 +880,7 @@ function normalizeChannel(item: Partial<AdminModelChannel> = {}): AdminModelChan
         name: item.name || "",
         baseUrl: item.baseUrl || "",
         apiKey: item.apiKey || "",
+        prefix: item.prefix || "",
         models: item.models || [],
         weight: Math.max(1, Number(item.weight) || 1),
         enabled: item.enabled !== false,
@@ -906,7 +912,7 @@ function mergeChannelApiKeys(currentChannels: AdminModelChannel[], saved: AdminS
 }
 
 function collectChannelModels(channels: AdminModelChannel[]) {
-    return uniqueModels(channels.filter((channel) => channel.enabled).flatMap((channel) => channel.models || []));
+    return uniqueModels(channels.filter((channel) => channel.enabled).flatMap((channel) => (channel.models || []).map((model) => (channel.prefix || "") + model)));
 }
 
 function collectKnownModels(settings: AdminSettings) {
