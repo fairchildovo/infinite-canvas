@@ -3,14 +3,25 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { nanoid } from "nanoid";
 
 import { apiGet } from "@/services/api/request";
 import type { AdminPublicSettings } from "@/services/api/admin";
+
+export type ModelChannel = {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    models: string[];
+};
+
 
 export type AiConfig = {
     channelMode: "remote" | "local";
     baseUrl: string;
     apiKey: string;
+    channels: ModelChannel[];
     model: string;
     imageModel: string;
     videoModel: string;
@@ -47,11 +58,13 @@ export type WebdavSyncConfig = {
 
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
+const CHANNEL_MODEL_SEPARATOR = "::";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
     baseUrl: "https://api.openai.com",
     apiKey: "",
+    channels: [],
     model: "gpt-image-2",
     imageModel: "gpt-image-2",
     videoModel: "grok-imagine-video",
@@ -141,17 +154,17 @@ function preferredModel(models: string[], predicate: (model: string) => boolean)
 }
 
 function isVideoModelName(model: string) {
-    const value = model.toLowerCase();
+    const value = modelOptionName(model).toLowerCase();
     return value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("kling") || value.includes("wan") || value.includes("hailuo");
 }
 
 function isImageModelName(model: string) {
-    const value = model.toLowerCase();
+    const value = modelOptionName(model).toLowerCase();
     return !isVideoModelName(model) && !isAudioModelName(model) && (value.includes("seedream") || value.includes("gpt-image") || value.includes("image") || value.includes("dall-e") || value.includes("dalle") || value.includes("imagen") || value.includes("flux") || value.includes("sdxl") || value.includes("stable-diffusion") || value.includes("midjourney"));
 }
 
 function isAudioModelName(model: string) {
-    const value = model.toLowerCase();
+    const value = modelOptionName(model).toLowerCase();
     return value.includes("audio") || value.includes("tts") || value.includes("speech") || value.includes("voice") || value.includes("music") || value.includes("sound");
 }
 
@@ -172,8 +185,8 @@ export function filterModelsByCapability(models: string[], capability?: ModelCap
 }
 
 export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability) {
-    if (!capability) return config.models;
-    return config[modelListKey(capability)];
+    if (!capability) return uniqueModelOptions(config.models);
+    return uniqueModelOptions(config[modelListKey(capability)]);
 }
 
 function modelListKey(capability: ModelCapability) {
@@ -248,6 +261,7 @@ export const useConfigStore = create<ConfigStore>()(
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         canvasImageCount: config.canvasImageCount || "3",
+                        channels: normalizeChannels(config),
                         imageModels: Array.isArray(persistedConfig.imageModels) ? normalizeModelList(config.imageModels) : filterModelsByCapability(config.models, "image"),
                         videoModels: Array.isArray(persistedConfig.videoModels) ? normalizeModelList(config.videoModels) : filterModelsByCapability(config.models, "video"),
                         textModels: Array.isArray(persistedConfig.textModels) ? normalizeModelList(config.textModels) : filterModelsByCapability(config.models, "text"),
@@ -261,6 +275,114 @@ export const useConfigStore = create<ConfigStore>()(
 
 function normalizeModelList(models: string[]) {
     return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)));
+
+export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {
+    return {
+        id: channel?.id?.trim() || nanoid(),
+        name: channel?.name?.trim() || "新渠道",
+        baseUrl: channel?.baseUrl?.trim() || "https://api.openai.com",
+        apiKey: channel?.apiKey || "",
+        models: uniqueRawModels(channel?.models || []),
+    };
+}
+
+export function encodeChannelModel(channelId: string, model: string) {
+    return `${channelId}${CHANNEL_MODEL_SEPARATOR}${model.trim()}`;
+}
+
+export function isChannelModelValue(value: string) {
+    return value.includes(CHANNEL_MODEL_SEPARATOR);
+}
+
+export function decodeChannelModel(value: string) {
+    const index = value.indexOf(CHANNEL_MODEL_SEPARATOR);
+    if (index < 0) return null;
+    return { channelId: value.slice(0, index), model: value.slice(index + CHANNEL_MODEL_SEPARATOR.length) };
+}
+
+export function modelOptionName(value: string) {
+    return decodeChannelModel(value)?.model || value;
+}
+
+export function modelOptionLabel(config: AiConfig, value: string) {
+    const decoded = decodeChannelModel(value);
+    if (!decoded) return value;
+    const channel = config.channels.find((item) => item.id === decoded.channelId);
+    return channel ? `${decoded.model}（${channel.name}）` : decoded.model;
+}
+
+export function modelOptionsFromChannels(channels: ModelChannel[]) {
+    return uniqueModelOptions(channels.flatMap((channel) => channel.models.map((model) => encodeChannelModel(channel.id, model))));
+}
+
+export function normalizeModelOptionValue(value: string | undefined, channels: ModelChannel[]) {
+    const model = (value || "").trim();
+    if (!model) return "";
+    const decoded = decodeChannelModel(model);
+    if (decoded) {
+        const channel = channels.find((item) => item.id === decoded.channelId);
+        return channel && channel.models.includes(decoded.model) ? model : "";
+    }
+    const channel = channels.find((item) => item.models.includes(decoded?.model || model)) || channels[0];
+    return channel && channel.models.includes(decoded?.model || model) ? encodeChannelModel(channel.id, decoded?.model || model) : model;
+}
+
+export function resolveModelChannel(config: AiConfig, value: string) {
+    const decoded = decodeChannelModel(value);
+    const model = decoded?.model || value;
+    const matched = decoded ? config.channels.find((channel) => channel.id === decoded.channelId) : config.channels.find((channel) => channel.models.includes(model));
+    return matched || config.channels[0] || createModelChannel({ id: "default", name: "默认渠道", baseUrl: config.baseUrl, apiKey: config.apiKey, models: config.models.map(modelOptionName) });
+}
+
+export function resolveModelRequestConfig(config: AiConfig, value: string) {
+    const channel = resolveModelChannel(config, value);
+    return {
+        ...config,
+        model: modelOptionName(value || config.model),
+        baseUrl: channel.baseUrl,
+        apiKey: channel.apiKey,
+    };
+}
+
+function normalizeChannels(config: AiConfig) {
+    const persistedChannels = Array.isArray(config.channels) ? config.channels : [];
+    const channels = persistedChannels.map((channel, index) =>
+        createModelChannel({
+            ...channel,
+            id: channel.id || (index === 0 ? "default" : `channel-${index + 1}`),
+            name: channel.name || (index === 0 ? "默认渠道" : `channel ${index + 1}`),
+            models: uniqueRawModels(channel.models || []),
+        }),
+    );
+    if (!channels.length) {
+        channels.push(
+            createModelChannel({
+                id: "default",
+                name: "默认渠道",
+                baseUrl: config.baseUrl || defaultConfig.baseUrl,
+                apiKey: config.apiKey || "",
+                models: uniqueRawModels([
+                    ...(config.models || []),
+                    config.model,
+                    config.imageModel,
+                    config.videoModel,
+                    config.textModel,
+                    config.audioModel,
+                ]),
+            }),
+        );
+    }
+    return channels.map((channel) => ({ ...channel, models: uniqueRawModels(channel.models) }));
+}
+
+function uniqueRawModels(models: string[]) {
+    return Array.from(new Set((models || []).map((model) => modelOptionName(model).trim()).filter(Boolean)));
+}
+
+function uniqueModelOptions(models: string[]) {
+    return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)));
+}
+
 }
 
 export function useEffectiveConfig() {

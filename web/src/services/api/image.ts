@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -12,6 +12,62 @@ export type ChatCompletionMessage = {
     role: "system" | "user" | "assistant";
     content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
 };
+
+export type AiTextMessage = ChatCompletionMessage;
+
+export type ResponseToolCall = {
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+};
+
+export type ResponseInputMessage =
+    | AiTextMessage
+    | { type: "function_call"; call_id: string; name: string; arguments: string }
+    | { role: "tool"; tool_call_id: string; content: string };
+
+export type ResponseFunctionTool = {
+    type: "function";
+    function: {
+        name: string;
+        description?: string;
+        parameters: Record<string, unknown>;
+        strict?: boolean;
+    };
+};
+
+export type ToolResponseResult = {
+    content: string;
+    toolCalls: ResponseToolCall[];
+};
+
+type ToolChoice = "auto" | "required" | { type: "function"; name: string };
+type ResponseMessageContent = AiTextMessage["content"] | string;
+type ResponseInputContent = { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
+type ResponseInputItem =
+    | { role: "system" | "user" | "assistant"; content: string | ResponseInputContent[] }
+    | { type: "function_call"; call_id: string; name: string; arguments: string }
+    | { type: "function_call_output"; call_id: string; output: string };
+type ResponseApiToolDefinition = {
+    type: "function";
+    name: string;
+    description?: string;
+    parameters: Record<string, unknown>;
+    strict?: boolean;
+};
+type ResponseApiOutputItem =
+    | { type?: "message"; content?: Array<{ type?: string; text?: string }> }
+    | { type?: "function_call"; id?: string; call_id?: string; name?: string; arguments?: string };
+type ResponseApiPayload = {
+    id?: string;
+    output?: ResponseApiOutputItem[];
+    output_text?: string;
+    error?: { message?: string };
+    code?: number;
+    msg?: string;
+};
+type ResponseStreamState = { buffer: string; text: string; payload?: ResponseApiPayload; error?: string };
+type RequestOptions = { signal?: AbortSignal };
 
 type ImageApiResponse = {
     data?: Array<Record<string, unknown>>;
@@ -136,10 +192,12 @@ function parseImagePayload(payload: ImageApiResponse) {
 }
 
 function readAxiosError(error: unknown, fallback: string) {
+    if (axios.isCancel(error)) return "请求已取消";
     if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number }>(error)) {
         const responseData = error.response?.data;
         return responseData?.msg || responseData?.error?.message || readStatusError(error.response?.status, fallback);
     }
+    if (error instanceof DOMException && error.name === "AbortError") return "请求已取消";
     return error instanceof Error ? error.message : fallback;
 }
 
@@ -192,6 +250,100 @@ function refreshRemoteUser(config: AiConfig) {
 function withSystemMessage(config: AiConfig, messages: ChatCompletionMessage[]) {
     const systemPrompt = config.systemPrompt.trim();
     return systemPrompt ? [{ role: "system" as const, content: systemPrompt }, ...messages] : messages;
+}
+
+
+function toResponseInput(messages: ResponseInputMessage[]): ResponseInputItem[] {
+    return messages.map((message) => {
+        if ("type" in message && message.type === "function_call") return message as ResponseInputItem;
+        if ("role" in message && message.role === "tool") return { type: "function_call_output", call_id: message.tool_call_id, output: typeof message.content === "string" ? message.content : JSON.stringify(message.content) };
+        const role = message.role;
+        const rawContent = message.content;
+        const content: string | ResponseInputContent[] = typeof rawContent === "string"
+            ? rawContent
+            : rawContent.map((part) => (part.type === "text" ? { type: "input_text" as const, text: part.text } : { type: "input_image" as const, image_url: part.image_url.url }));
+        return { role, content } as ResponseInputItem;
+    });
+}
+
+function toResponseTool(tool: ResponseFunctionTool): ResponseApiToolDefinition {
+    return { type: "function", name: tool.function.name, description: tool.function.description, parameters: tool.function.parameters, strict: tool.function.strict };
+}
+
+function withSystemMessage(config: AiConfig, messages: ResponseInputMessage[]): ResponseInputMessage[] {
+    const systemPrompt = config.systemPrompt?.trim();
+    if (!systemPrompt) return messages;
+    if (messages.length && "role" in messages[0] && messages[0].role === "system") return messages;
+    return [{ role: "system", content: systemPrompt }, ...messages];
+}
+
+function parseResponseStreamChunk(chunk: string, state: ResponseStreamState) {
+    for (const eventBlock of chunk.split("\n\n")) {
+        const dataLines = eventBlock.split("\n").filter((line) => line.startsWith("data: "));
+        for (const dataLine of dataLines) {
+            const data = dataLine.slice(6).trim();
+            if (!data || data === "[DONE]") continue;
+            try {
+                const payload = JSON.parse(data) as ResponseApiPayload;
+                state.payload = payload;
+                if (payload.error?.message) state.error = payload.error.message;
+                if (payload.output) {
+                    for (const item of payload.output) {
+                        if (item.type === "message" && item.content) {
+                            for (const part of item.content) {
+                                if (part.text) state.text += part.text;
+                            }
+                        }
+                    }
+                }
+                if (payload.output_text) state.text += payload.output_text;
+            } catch {
+                // ignore parse errors in stream
+            }
+        }
+    }
+}
+
+async function requestStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
+    const state: ResponseStreamState = { buffer: "", text: "" };
+    let processedLength = 0;
+    try {
+        const response = await axios.post(
+            buildApiUrl(config.baseUrl, "/responses"),
+            body,
+            {
+                headers: {
+                    ...aiHeaders(config, "application/json"),
+                } as Record<string, string>,
+                responseType: "text",
+                signal: options?.signal,
+                onDownloadProgress: (event) => {
+                    const responseText = String(event.event?.target?.responseText || "");
+                    const nextText = responseText.slice(processedLength);
+                    processedLength = responseText.length;
+                    state.buffer += nextText;
+                    const chunks = state.buffer.split("\n\n");
+                    state.buffer = chunks.pop() || "";
+                    for (const chunk of chunks) parseResponseStreamChunk(chunk, state);
+                    if (state.text && onDelta) onDelta(state.text);
+                },
+            },
+        );
+        if (typeof response.data === "string" && state.buffer) parseResponseStreamChunk(state.buffer, state);
+        if (state.payload?.error?.message) throw new Error(state.payload.error.message);
+        if (state.error) throw new Error(state.error);
+    } catch (error) {
+        if (axios.isCancel(error) || (error instanceof DOMException && error.name === "AbortError")) throw error;
+        throw new Error(readAxiosError(error, "请求失败"));
+    }
+    const output = state.payload?.output || [];
+    const toolCalls: ResponseToolCall[] = [];
+    for (const item of output) {
+        if (item.type === "function_call" && item.name) {
+            toolCalls.push({ id: item.id || item.call_id || "", type: "function", function: { name: item.name, arguments: item.arguments || "{}" } });
+        }
+    }
+    return { content: state.text, toolCalls };
 }
 
 export async function requestGeneration(config: AiConfig, prompt: string) {
@@ -315,6 +467,23 @@ export async function requestImageQuestion(config: AiConfig, messages: ChatCompl
     return answer || "没有返回内容";
 }
 
+
+
+export async function requestToolResponse(config: AiConfig, messages: ResponseInputMessage[], tools: ResponseFunctionTool[], toolChoice: ToolChoice = "auto", onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
+    try {
+        return await requestStreamingResponse(requestConfig, {
+            model: requestConfig.model,
+            input: toResponseInput(withSystemMessage(requestConfig, messages)),
+            tools: tools.map(toResponseTool),
+            tool_choice: toolChoice,
+            parallel_tool_calls: false,
+        }, onDelta, options);
+    } catch (error) {
+        throw new Error(readAxiosError(error, "请求失败"));
+    }
+}
+
 export async function fetchImageModels(config: AiConfig) {
     if (config.channelMode === "remote") return config.models;
     try {
@@ -331,3 +500,8 @@ export async function fetchImageModels(config: AiConfig) {
         throw new Error(readAxiosError(error, "读取模型失败"));
     }
 }
+
+export async function fetchChannelModels(channel: ModelChannel) {
+    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey });
+}
+

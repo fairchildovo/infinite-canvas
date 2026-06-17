@@ -2,7 +2,7 @@ import axios from "axios";
 
 import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
-import { buildApiUrl, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 function aiApiUrl(config: AiConfig, path: string) {
@@ -26,15 +26,18 @@ function refreshRemoteUser(config: AiConfig) {
     if (config.channelMode === "remote") void useUserStore.getState().hydrateUser();
 }
 
-export async function requestAudioGeneration(config: AiConfig, prompt: string): Promise<Blob> {
-    const model = (config.model || config.audioModel).trim();
-    assertAudioConfig(config, model);
+type RequestOptions = { signal?: AbortSignal };
+
+export async function requestAudioGeneration(config: AiConfig, prompt: string, options?: RequestOptions): Promise<Blob> {
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.audioModel);
+    const model = requestConfig.model.trim();
+    assertAudioConfig(requestConfig, model);
     const format = normalizeAudioFormatValue(config.audioFormat);
     const instructions = config.audioInstructions.trim();
 
     try {
         const response = await axios.post<Blob>(
-            aiApiUrl(config, "/audio/speech"),
+            aiApiUrl(requestConfig, "/audio/speech"),
             {
                 model,
                 input: prompt,
@@ -43,7 +46,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string): 
                 speed: Number(normalizeAudioSpeedValue(config.audioSpeed)),
                 ...(instructions ? { instructions } : {}),
             },
-            { headers: aiHeaders(config), responseType: "blob" },
+            { headers: aiHeaders(requestConfig), responseType: "blob", signal: options?.signal },
         );
         await assertAudioBlob(response.data);
         refreshRemoteUser(config);
@@ -77,6 +80,7 @@ async function assertAudioBlob(blob: Blob) {
 }
 
 function readAxiosError(error: unknown, fallback: string) {
+    if (axios.isCancel(error)) return "请求已取消";
     if (axios.isAxiosError<{ error?: { message?: string }; msg?: string; code?: number }>(error)) {
         const responseData = error.response?.data;
         return responseData?.msg || responseData?.error?.message || statusMessage(error.response?.status, fallback);

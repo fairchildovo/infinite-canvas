@@ -26,14 +26,14 @@ import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
 import { ActiveConnectionPath, ConnectionPath } from "../components/canvas-connections";
 import { CanvasConfigComposer } from "../components/canvas-config-composer";
 import { CanvasConfigNodePanel } from "../components/canvas-config-node-panel";
-import { CanvasAssistantPanel } from "../components/canvas-assistant-panel";
+import { CANVAS_AGENT_PANEL_MOTION_MS, CanvasAssistantPanel } from "../components/canvas-assistant-panel";
 import { CanvasNodeContextMenu } from "../components/canvas-context-menu";
 import { CanvasNodeAngleDialog, type CanvasImageAngleParams } from "../components/canvas-node-angle-dialog";
 import { CanvasNodeCropDialog, type CanvasImageCropRect } from "../components/canvas-node-crop-dialog";
 import { CanvasNodeMaskEditDialog, type CanvasImageMaskEditPayload } from "../components/canvas-node-mask-edit-dialog";
 import { CanvasNodeSplitDialog, type CanvasImageSplitParams } from "../components/canvas-node-split-dialog";
 import { CanvasNodeUpscaleDialog, type CanvasImageUpscaleParams } from "../components/canvas-node-upscale-dialog";
-import { buildNodeChatMessages, buildNodeGenerationContext, buildNodeGenerationInputs, hydrateNodeGenerationContext, type NodeGenerationInput } from "../components/canvas-node-generation";
+import { buildNodeGenerationContext, buildNodeGenerationInputs, buildNodeResponseMessages, hydrateNodeGenerationContext, type NodeGenerationInput } from "../components/canvas-node-generation";
 import { CanvasNodeHoverToolbar, CanvasNodeInfoModal } from "../components/canvas-node-hover-toolbar";
 import { InfiniteCanvas } from "../components/infinite-canvas";
 import { Minimap } from "../components/canvas-mini-map";
@@ -85,10 +85,18 @@ type CanvasHistoryEntry = Pick<CanvasClipboard, "nodes" | "connections"> & {
     showImageInfo: boolean;
 };
 
+type CanvasGenerationRequest = {
+    targetNodeId: string;
+    originNodeId: string;
+    runningNodeId: string;
+    controller: AbortController;
+};
+
 const VIDEO_NODE_MAX_WIDTH = 420;
 const VIDEO_NODE_MAX_HEIGHT = 420;
 const CONNECTION_HANDLE_HIT_RADIUS = 40;
 const CONNECTION_NODE_HIT_PADDING = 32;
+const NODE_STATUS_IDLE = "idle" as const;
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
@@ -208,7 +216,7 @@ function ConnectionCreateOption({ theme, icon, title, description, onClick }: { 
 }
 
 function InfiniteCanvasPage() {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const params = useParams<{ id: string }>();
     const router = useRouter();
     const projectId = params.id;
@@ -292,6 +300,7 @@ function InfiniteCanvasPage() {
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
     const [assistantCollapsed, setAssistantCollapsed] = useState(true);
     const [assistantMounted, setAssistantMounted] = useState(false);
+    const [assistantClosing, setAssistantClosing] = useState(false);
     const [agentMode, setAgentMode] = useState<CanvasAgentMode>("online");
     const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
     const [titleEditing, setTitleEditing] = useState(false);
@@ -309,7 +318,9 @@ function InfiniteCanvasPage() {
     const connectingParamsRef = useRef(connectingParams);
     const connectionTargetNodeIdRef = useRef(connectionTargetNodeId);
     const selectionBoxRef = useRef(selectionBox);
+    const agentCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingConnectionCreateRef = useRef(pendingConnectionCreate);
+    const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
 
     const createHistoryEntry = useCallback(
         (): CanvasHistoryEntry => ({
@@ -2338,14 +2349,45 @@ function InfiniteCanvasPage() {
     );
 
     const assistantOpen = assistantMounted && !assistantCollapsed;
-    const openAgent = (mode: CanvasAgentMode = agentMode) => {
+        const startGenerationRequest = useCallback((targetNodeId: string, originNodeId: string, runningId = originNodeId, controller = new AbortController()) => {
+        const previous = generationRequestsRef.current.get(targetNodeId);
+        if (previous?.controller !== controller) previous?.controller.abort();
+        generationRequestsRef.current.set(targetNodeId, { targetNodeId, originNodeId, runningNodeId: runningId, controller });
+        return controller;
+    }, []);
+
+    const cancelGenerationRequest = useCallback((targetNodeId: string) => {
+        const request = generationRequestsRef.current.get(targetNodeId);
+        if (request) {
+            request.controller.abort();
+            generationRequestsRef.current.delete(targetNodeId);
+        }
+    }, []);
+
+    const confirmStopGeneration = useCallback((nodeId: string) => {
+        modal.confirm({
+            title: "停止生成",
+            content: "确定要停止当前生成吗？",
+            okText: "停止",
+            cancelText: "继续生成",
+            onOk: () => cancelGenerationRequest(nodeId),
+        });
+    }, [modal, cancelGenerationRequest]);
+
+const openAgent = (mode: CanvasAgentMode = agentMode) => {
         setAgentMode(mode);
         setAssistantMounted(true);
         setAssistantCollapsed(false);
     };
     const closeAgent = () => {
+        if (!assistantMounted || assistantClosing) return;
         setAssistantCollapsed(true);
-        setAssistantMounted(false);
+        setAssistantClosing(true);
+        agentCloseTimerRef.current = setTimeout(() => {
+            agentCloseTimerRef.current = null;
+            setAssistantMounted(false);
+            setAssistantClosing(false);
+        }, CANVAS_AGENT_PANEL_MOTION_MS);
     };
 
     if (!projectLoaded) return <CanvasRefreshShell />;
@@ -2473,7 +2515,8 @@ function InfiniteCanvasPage() {
                                     inputSummary={getInputSummary(configInputsById.get(contentNode.id) || [])}
                                     onConfigChange={handleConfigNodeChange}
                                     onComposerToggle={() => setDialogNodeId((current) => (current === contentNode.id ? null : contentNode.id))}
-                                    onGenerate={(nodeId) => {
+                                    onStop={confirmStopGeneration}
+                                onGenerate={(nodeId) => {
                                         const target = nodesRef.current.find((item) => item.id === nodeId);
                                         void handleGenerateNode(nodeId, target?.metadata?.generationMode || "image", target?.metadata?.composerContent ?? target?.metadata?.prompt ?? "");
                                     }}
@@ -2671,8 +2714,8 @@ function InfiniteCanvasPage() {
                     onPasteImage={pasteAssistantImage}
                     agentMode={agentMode}
                     onAgentModeChange={setAgentMode}
-                    onCollapseStart={() => setAssistantCollapsed(true)}
-                    onCollapse={() => setAssistantMounted(false)}
+                    closing={assistantClosing}
+                    onCollapse={closeAgent}
                 />
             ) : null}
         </main>
