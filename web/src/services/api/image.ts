@@ -247,11 +247,6 @@ function refreshRemoteUser(config: AiConfig) {
     if (config.channelMode === "remote") void useUserStore.getState().hydrateUser();
 }
 
-function withSystemMessage(config: AiConfig, messages: ChatCompletionMessage[]) {
-    const systemPrompt = config.systemPrompt.trim();
-    return systemPrompt ? [{ role: "system" as const, content: systemPrompt }, ...messages] : messages;
-}
-
 
 function toResponseInput(messages: ResponseInputMessage[]): ResponseInputItem[] {
     return messages.map((message) => {
@@ -504,4 +499,5 @@ export async function fetchImageModels(config: AiConfig) {
 export async function fetchChannelModels(channel: ModelChannel) {
     return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey });
 }
+
 
