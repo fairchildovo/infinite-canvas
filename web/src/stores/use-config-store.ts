@@ -275,6 +275,7 @@ export const useConfigStore = create<ConfigStore>()(
 
 function normalizeModelList(models: string[]) {
     return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)));
+}
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {
     return {
