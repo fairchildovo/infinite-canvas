@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { EditorView } from "@uiw/react-codemirror";
 
-import { fetchAdminSettings, fetchChannelModels, saveAdminSettings, testChannelModel, type AdminModelChannel, type AdminModelCost, type AdminSettings } from "@/services/api/admin";
+import { fetchAdminSettings, fetchChannelModels, saveAdminSettings, testChannelModel, type AdminModelAlias, type AdminModelChannel, type AdminModelCost, type AdminSettings } from "@/services/api/admin";
 import { useUserStore } from "@/stores/use-user-store";
 
 const CodeMirror = dynamic(() => import("@uiw/react-codemirror"), { ssr: false });
@@ -40,7 +40,7 @@ const emptySettings: AdminSettings = {
     },
     private: { channels: [], promptSync: { enabled: true, cron: "*/5 * * * *" }, auth: { linuxDo: { clientId: "", clientSecret: "" } } },
 };
-const emptyChannel: AdminModelChannel = { protocol: "openai", name: "", baseUrl: "", apiKey: "", prefix: "", models: [], weight: 1, enabled: true, remark: "" };
+const emptyChannel: AdminModelChannel = { protocol: "openai", name: "", baseUrl: "", apiKey: "", models: [], modelAliases: [], weight: 1, enabled: true, remark: "" };
 
 type SettingsTabKey = "public" | "private";
 type EditorMode = "visual" | "json";
@@ -190,7 +190,9 @@ export default function AdminSettingsPage() {
     };
 
     const saveChannel = async () => {
-        const channel = normalizeChannel(await channelForm.validateFields());
+        await channelForm.validateFields();
+        const channel = normalizeChannel(channelForm.getFieldsValue(true));
+        channel.modelAliases = reconcileModelAliases(channel.models, channel.modelAliases);
         rememberModels(channel.models);
         const nextChannels = [...channels];
         if (editingChannelIndex === null) nextChannels.push(channel);
@@ -201,7 +203,7 @@ export default function AdminSettingsPage() {
 
     const fetchChannelModelList = async () => {
         if (!token) return;
-        const channel = channelForm.getFieldsValue();
+        const channel = channelForm.getFieldsValue(true);
         if (!channel?.baseUrl) {
             message.warning("请先填写接口地址");
             return;
@@ -255,6 +257,7 @@ export default function AdminSettingsPage() {
     const confirmChannelModelSelector = () => {
         const models = uniqueModels(modelSelectSelected);
         channelForm.setFieldValue("models", models);
+        channelForm.setFieldValue("modelAliases", reconcileModelAliases(models, channelForm.getFieldValue("modelAliases") || []));
         rememberModels(models);
         closeChannelModelSelector();
     };
@@ -661,7 +664,7 @@ export default function AdminSettingsPage() {
                                 </Form.Item>
                             </Col>
                             <Col span={24}>
-                                <Form.Item label="渠道可用模型">
+                                <Form.Item label="渠道真实模型">
                                     <Space.Compact style={{ width: "100%" }}>
                                         <Form.Item name="models" noStyle>
                                             <Select mode="tags" maxTagCount="responsive" tokenSeparators={[",", "\n"]} options={knownModels.map((model) => ({ label: model, value: model }))} />
@@ -670,9 +673,46 @@ export default function AdminSettingsPage() {
                                     </Space.Compact>
                                 </Form.Item>
                             </Col>
-                            <Col span={12}>
-                                <Form.Item name="prefix" label="模型前缀">
-                                    <Input placeholder="如 a-，留空表示无前缀" />
+                            <Col span={24}>
+                                <Form.Item shouldUpdate={(prev, next) => prev.models !== next.models || prev.modelAliases !== next.modelAliases} noStyle>
+                                    {({ getFieldValue, setFieldValue }) => {
+                                        const models = uniqueModels(getFieldValue("models") || []);
+                                        const aliases = reconcileModelAliases(models, getFieldValue("modelAliases") || []);
+                                        return (
+                                            <Form.Item label="前台显示名称" extra="留空时前台直接显示真实模型名；保存后生成请求会由后端还原为真实模型名。">
+                                                <Table
+                                                    rowKey="model"
+                                                    pagination={false}
+                                                    size="small"
+                                                    dataSource={aliases}
+                                                    locale={{ emptyText: "请先添加真实模型" }}
+                                                    columns={[
+                                                        {
+                                                            title: "真实模型名",
+                                                            dataIndex: "model",
+                                                            render: (value) => <Typography.Text style={{ wordBreak: "break-all" }}>{value}</Typography.Text>,
+                                                        },
+                                                        {
+                                                            title: "显示名称",
+                                                            dataIndex: "displayName",
+                                                            width: 260,
+                                                            render: (_, item) => (
+                                                                <Input
+                                                                    allowClear
+                                                                    value={item.displayName}
+                                                                    placeholder={item.model}
+                                                                    onChange={(event) => {
+                                                                        const nextAliases = aliases.map((alias) => (alias.model === item.model ? { ...alias, displayName: event.target.value } : alias));
+                                                                        setFieldValue("modelAliases", nextAliases);
+                                                                    }}
+                                                                />
+                                                            ),
+                                                        },
+                                                    ]}
+                                                />
+                                            </Form.Item>
+                                        );
+                                    }}
                                 </Form.Item>
                             </Col>
                             <Col span={24}>
@@ -875,17 +915,29 @@ function normalizePrivateSetting(setting: Partial<AdminSettings["private"]> = {}
 }
 
 function normalizeChannel(item: Partial<AdminModelChannel> = {}): AdminModelChannel {
+    const models = uniqueModels(item.models || []);
     return {
         protocol: "openai",
         name: item.name || "",
         baseUrl: item.baseUrl || "",
         apiKey: item.apiKey || "",
-        prefix: item.prefix || "",
-        models: item.models || [],
+        models,
+        modelAliases: normalizeModelAliases(models, item.modelAliases || [], item.prefix || ""),
         weight: Math.max(1, Number(item.weight) || 1),
         enabled: item.enabled !== false,
         remark: item.remark || "",
     };
+}
+
+function normalizeModelAliases(models: string[], aliases: Partial<AdminModelAlias>[], prefix = "") {
+    const normalized = reconcileModelAliases(models, aliases);
+    if (!prefix.trim()) return normalized;
+    return normalized.map((item) => (item.displayName ? item : { ...item, displayName: `${prefix.trim()}${item.model}` }));
+}
+
+function reconcileModelAliases(models: string[], aliases: Partial<AdminModelAlias>[]) {
+    const aliasMap = new Map((aliases || []).map((item) => [item.model || "", item.displayName || ""]));
+    return uniqueModels(models).map((model) => ({ model, displayName: aliasMap.get(model) || "" }));
 }
 
 function modelCostCredits(items: AdminSettings["public"]["modelChannel"]["modelCosts"], model: string) {
@@ -912,15 +964,18 @@ function mergeChannelApiKeys(currentChannels: AdminModelChannel[], saved: AdminS
 }
 
 function collectChannelModels(channels: AdminModelChannel[]) {
-    return uniqueModels(channels.filter((channel) => channel.enabled).flatMap((channel) => (channel.models || []).map((model) => (channel.prefix || "") + model)));
+    return uniqueModels(channels.filter((channel) => channel.enabled).flatMap(channelDisplayModels));
 }
 
 function collectKnownModels(settings: AdminSettings) {
     return uniqueModels([
-        ...(settings.public.modelChannel.availableModels || []),
-        ...(settings.public.modelChannel.modelCosts || []).map((item) => item.model),
         ...settings.private.channels.flatMap((channel) => channel.models || []),
     ]);
+}
+
+function channelDisplayModels(channel: AdminModelChannel) {
+    const aliasMap = new Map((channel.modelAliases || []).map((item) => [item.model, item.displayName.trim()]));
+    return (channel.models || []).map((model) => aliasMap.get(model) || model);
 }
 
 function buildModelSelectGroups(sourceModels: string[], existingModels: string[]): Record<ModelSelectTabKey, string[]> {

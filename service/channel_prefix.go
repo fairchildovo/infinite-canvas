@@ -11,30 +11,123 @@ import (
 	"github.com/basketikun/infinite-canvas/model"
 )
 
-// MatchChannelModel 检查 modelName 是否匹配渠道中的某个模型（考虑前缀）。
-// 匹配成功返回剥离前缀后的原始模型名。
+// MatchChannelModel 检查 modelName 是否匹配渠道中的公开模型名或真实模型名。
+// 匹配成功返回上游真实模型名。
 func MatchChannelModel(channel model.ModelChannel, modelName string) (string, bool) {
-	prefix := channel.Prefix
+	modelName = strings.TrimSpace(modelName)
+	aliases := channelAliasMap(channel)
 	for _, m := range channel.Models {
-		if prefix+m == modelName {
-			return m, true
+		rawModel := strings.TrimSpace(m)
+		if rawModel == "" {
+			continue
+		}
+		if aliases[rawModel] == modelName {
+			return rawModel, true
+		}
+	}
+	for _, m := range channel.Models {
+		rawModel := strings.TrimSpace(m)
+		if rawModel == "" {
+			continue
+		}
+		if rawModel == modelName {
+			return rawModel, true
 		}
 	}
 	return "", false
 }
 
-// BuildPrefixedModelList 构建带前缀的模型名称列表（已启用渠道）。
-func BuildPrefixedModelList(channels []model.ModelChannel) []string {
+// BuildPublicModelList 构建公开模型名称列表（已启用渠道）。
+func BuildPublicModelList(channels []model.ModelChannel) []string {
 	models := []string{}
 	for _, channel := range channels {
 		if !channel.Enabled {
 			continue
 		}
+		aliases := channelAliasMap(channel)
 		for _, m := range channel.Models {
-			models = append(models, channel.Prefix+m)
+			rawModel := strings.TrimSpace(m)
+			if rawModel == "" {
+				continue
+			}
+			if displayName := aliases[rawModel]; displayName != "" {
+				models = append(models, displayName)
+			} else {
+				models = append(models, rawModel)
+			}
 		}
 	}
 	return uniqueModelNames(models)
+}
+
+// BuildDisplayModelList 保留语义别名，供调用方明确需要公开显示名列表时使用。
+func BuildDisplayModelList(channels []model.ModelChannel) []string {
+	return BuildPublicModelList(channels)
+}
+
+func channelAliasMap(channel model.ModelChannel) map[string]string {
+	aliases := map[string]string{}
+	for _, item := range channel.ModelAliases {
+		rawModel := strings.TrimSpace(item.Model)
+		displayName := strings.TrimSpace(item.DisplayName)
+		if rawModel == "" || displayName == "" {
+			continue
+		}
+		aliases[rawModel] = displayName
+	}
+	return aliases
+}
+
+// BuildPrefixedModelList 兼容旧调用，返回公开模型名称列表。
+func BuildPrefixedModelList(channels []model.ModelChannel) []string {
+	return BuildPublicModelList(channels)
+}
+
+func hasAliasForModel(aliases []model.ModelAlias, rawModel string) bool {
+	rawModel = strings.TrimSpace(rawModel)
+	for _, item := range aliases {
+		if strings.TrimSpace(item.Model) == rawModel && strings.TrimSpace(item.DisplayName) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeModelAliases(channel model.ModelChannel) []model.ModelAlias {
+	result := []model.ModelAlias{}
+	for _, item := range channel.ModelAliases {
+		rawModel := strings.TrimSpace(item.Model)
+		displayName := strings.TrimSpace(item.DisplayName)
+		if rawModel == "" || displayName == "" {
+			continue
+		}
+		result = append(result, model.ModelAlias{Model: rawModel, DisplayName: displayName})
+	}
+	if strings.TrimSpace(channel.Prefix) != "" {
+		for _, m := range channel.Models {
+			rawModel := strings.TrimSpace(m)
+			if rawModel == "" || hasAliasForModel(result, rawModel) {
+				continue
+			}
+			result = append(result, model.ModelAlias{Model: rawModel, DisplayName: strings.TrimSpace(channel.Prefix) + rawModel})
+		}
+	}
+	return uniqueModelAliases(result)
+}
+
+func uniqueModelAliases(aliases []model.ModelAlias) []model.ModelAlias {
+	result := []model.ModelAlias{}
+	seen := map[string]bool{}
+	for _, item := range aliases {
+		rawModel := strings.TrimSpace(item.Model)
+		displayName := strings.TrimSpace(item.DisplayName)
+		if rawModel == "" || displayName == "" || seen[rawModel] {
+			continue
+		}
+		seen[rawModel] = true
+		result = append(result, model.ModelAlias{Model: rawModel, DisplayName: displayName})
+	}
+	return result
 }
 
 // ReplaceModelInBody 替换请求体中的 model 字段。

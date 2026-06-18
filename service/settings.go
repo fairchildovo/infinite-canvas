@@ -129,9 +129,9 @@ func normalizePrivateSetting(setting model.PrivateSetting) model.PrivateSetting 
 		if setting.Channels[i].Protocol == "" {
 			setting.Channels[i].Protocol = "openai"
 		}
-		if setting.Channels[i].Models == nil {
-			setting.Channels[i].Models = []string{}
-		}
+		setting.Channels[i].Models = uniqueModelNames(setting.Channels[i].Models)
+		setting.Channels[i].ModelAliases = filterModelAliases(setting.Channels[i].Models, normalizeModelAliases(setting.Channels[i]))
+		setting.Channels[i].Prefix = ""
 		if setting.Channels[i].Weight <= 0 {
 			setting.Channels[i].Weight = 1
 		}
@@ -207,6 +207,9 @@ func SelectModelChannel(modelName string) (model.ModelChannel, string, error) {
 
 func BuildModelChannelURL(channel model.ModelChannel, path string) string {
 	baseURL := normalizeModelChannelBaseURL(channel.BaseURL)
+	if path == "/agnesapi" {
+		return strings.TrimSuffix(baseURL, "/v1") + path
+	}
 	lowerBaseURL := strings.ToLower(baseURL)
 	if !strings.HasSuffix(lowerBaseURL, "/v1") && !strings.HasSuffix(lowerBaseURL, "/api/v3") && !strings.HasSuffix(lowerBaseURL, "/api/plan/v3") {
 		baseURL += "/v1"
@@ -245,7 +248,7 @@ func isSeedanceModelName(modelName string) bool {
 }
 
 func enabledChannelModels(channels []model.ModelChannel) []string {
-	return BuildPrefixedModelList(channels)
+	return BuildPublicModelList(channels)
 }
 
 func uniqueModelNames(models []string) []string {
@@ -282,12 +285,12 @@ func repairDefaultModel(current string, models []string, preferred func(string) 
 
 func isVideoModelName(modelName string) bool {
 	name := strings.ToLower(strings.TrimSpace(modelName))
-	return strings.Contains(name, "seedance") || strings.Contains(name, "video")
+	return strings.Contains(name, "seedance") || strings.Contains(name, "video") || strings.Contains(name, "视频")
 }
 
 func isImageModelName(modelName string) bool {
 	name := strings.ToLower(strings.TrimSpace(modelName))
-	return strings.Contains(name, "seedream") || strings.Contains(name, "gpt-image") || strings.Contains(name, "image")
+	return strings.Contains(name, "seedream") || strings.Contains(name, "gpt-image") || strings.Contains(name, "image") || strings.Contains(name, "图片")
 }
 
 func isTextModelName(modelName string) bool {
@@ -298,9 +301,9 @@ func normalizeModelChannel(channel model.ModelChannel) model.ModelChannel {
 	if channel.Protocol == "" {
 		channel.Protocol = "openai"
 	}
-	if channel.Models == nil {
-		channel.Models = []string{}
-	}
+	channel.Models = uniqueModelNames(channel.Models)
+	channel.ModelAliases = filterModelAliases(channel.Models, normalizeModelAliases(channel))
+	channel.Prefix = ""
 	if channel.Weight <= 0 {
 		channel.Weight = 1
 	}
@@ -479,6 +482,23 @@ func modelChannelsForModel(channels []model.ModelChannel, modelName string) []mo
 		if _, ok := MatchChannelModel(channel, modelName); ok {
 			result = append(result, channel)
 		}
+	}
+	return result
+}
+
+func filterModelAliases(models []string, aliases []model.ModelAlias) []model.ModelAlias {
+	modelSet := map[string]bool{}
+	for _, item := range models {
+		modelSet[strings.TrimSpace(item)] = true
+	}
+	result := []model.ModelAlias{}
+	for _, item := range aliases {
+		rawModel := strings.TrimSpace(item.Model)
+		displayName := strings.TrimSpace(item.DisplayName)
+		if rawModel == "" || displayName == "" || !modelSet[rawModel] {
+			continue
+		}
+		result = append(result, model.ModelAlias{Model: rawModel, DisplayName: displayName})
 	}
 	return result
 }

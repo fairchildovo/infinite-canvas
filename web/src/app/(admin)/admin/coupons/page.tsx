@@ -236,7 +236,7 @@ export default function AdminCouponsPage() {
                     <Typography.Text type="secondary">已生成 {generatedCodes.length} 个兑换码：</Typography.Text>
                     <div style={{ maxHeight: 320, overflow: "auto" }}>
                         {generatedCodes.map((coupon) => (
-                            <Typography.Text key={coupon.id} copyable code block style={{ marginBottom: 4 }}>
+                            <Typography.Text key={coupon.id} copyable code style={{ display: "block", marginBottom: 4 }}>
                                 {coupon.code}
                             </Typography.Text>
                         ))}

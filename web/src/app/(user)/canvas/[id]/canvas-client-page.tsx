@@ -2120,7 +2120,7 @@ function InfiniteCanvasPage() {
                 const answers = await Promise.all(
                     (childIds.length ? childIds : [nodeId]).map((targetNodeId) => {
                         let localStreamed = "";
-                        return requestImageQuestion(generationConfig, buildNodeChatMessages({ ...generationContext, prompt: effectivePrompt }), (text) => {
+                        return requestImageQuestion(generationConfig, buildNodeResponseMessages({ ...generationContext, prompt: effectivePrompt }), (text) => {
                             localStreamed = text;
                             streamed = text;
                             if (isConfigNode) return;
@@ -2201,7 +2201,7 @@ function InfiniteCanvasPage() {
                 if (node.type === CanvasNodeType.Text) {
                     if (!context) return;
                     let streamed = "";
-                    const answer = await requestImageQuestion(generationConfig, buildNodeChatMessages({ ...context, prompt }), (text) => {
+                    const answer = await requestImageQuestion(generationConfig, buildNodeResponseMessages({ ...context, prompt }), (text) => {
                         streamed = text;
                         setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, type: CanvasNodeType.Text, metadata: { ...item.metadata, content: text, status: NODE_STATUS_LOADING } } : item)));
                     });
@@ -2500,6 +2500,7 @@ const openAgent = (mode: CanvasAgentMode = agentMode) => {
                                         onPromptChange={handleNodePromptChange}
                                         onConfigChange={handleConfigNodeChange}
                                         onGenerate={handleGenerateNode}
+                                        onStop={confirmStopGeneration}
                                         onImageSettingsOpenChange={(open) => {
                                             setNodeImageSettingsOpen(open);
                                             if (open) setToolbarNodeId(null);

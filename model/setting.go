@@ -11,15 +11,22 @@ const (
 
 // ModelChannel 模型渠道配置。
 type ModelChannel struct {
-	Protocol string   `json:"protocol"`
-	Name     string   `json:"name"`
-	BaseURL  string   `json:"baseUrl"`
-	APIKey   string   `json:"apiKey"`
-	Prefix   string   `json:"prefix" gorm:"-"`
-	Models   []string `json:"models"`
-	Weight   int      `json:"weight"`
-	Enabled  bool     `json:"enabled"`
-	Remark   string   `json:"remark"`
+	Protocol     string       `json:"protocol"`
+	Name         string       `json:"name"`
+	BaseURL      string       `json:"baseUrl"`
+	APIKey       string       `json:"apiKey"`
+	Prefix       string       `json:"prefix" gorm:"-"`
+	Models       []string     `json:"models"`
+	ModelAliases []ModelAlias `json:"modelAliases"`
+	Weight       int          `json:"weight"`
+	Enabled      bool         `json:"enabled"`
+	Remark       string       `json:"remark"`
+}
+
+// ModelAlias 模型公开显示名配置。
+type ModelAlias struct {
+	Model       string `json:"model"`
+	DisplayName string `json:"displayName"`
 }
 
 // ModelCost 模型算力点配置。

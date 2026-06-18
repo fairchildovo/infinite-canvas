@@ -42,25 +42,54 @@ func AIVideoContent(w http.ResponseWriter, r *http.Request, id string) {
 	proxyAIGetRequest(w, r, "/videos/"+id+"/content")
 }
 
+func AIVideoByVideoID(w http.ResponseWriter, r *http.Request) {
+	proxyAIGetRequest(w, r, "/agnesapi")
+}
+
 func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 	modelName := r.URL.Query().Get("model")
 	if strings.TrimSpace(modelName) == "" {
 		modelName = "grok-imagine-video"
 	}
-	channel, _, err := service.SelectModelChannel(modelName)
+	channel, rawModel, err := service.SelectModelChannel(modelName)
 	if err != nil {
 		log.Printf("AI proxy select channel failed: model=%s err=%v", modelName, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
-	path = resolveAIProxyPath(channel.BaseURL, modelName, path)
-	request, err := http.NewRequest(http.MethodGet, service.BuildModelChannelURL(channel, path), nil)
+	path = resolveAIProxyPath(channel.BaseURL, rawModel, path)
+	targetURL := service.BuildModelChannelURL(channel, path)
+	if query := upstreamAIQuery(r); query != "" {
+		if strings.Contains(targetURL, "?") {
+			targetURL += "&" + query
+		} else {
+			targetURL += "?" + query
+		}
+	}
+	logVideoQueryMode(r, path, modelName)
+	request, err := http.NewRequest(http.MethodGet, targetURL, nil)
 	if err != nil {
 		Fail(w, "AI 接口请求失败")
 		return
 	}
 	request.Header.Set("Authorization", "Bearer "+channel.APIKey)
 	copyAIResponse(w, request, nil)
+}
+
+func upstreamAIQuery(r *http.Request) string {
+	query := r.URL.Query()
+	query.Del("model")
+	return query.Encode()
+}
+
+func logVideoQueryMode(r *http.Request, path string, modelName string) {
+	if r.URL.Query().Get("video_id") != "" {
+		log.Printf("AI video query: mode=video_id model=%s", modelName)
+		return
+	}
+	if strings.HasPrefix(path, "/videos/") && !strings.HasSuffix(path, "/content") {
+		log.Printf("AI video query: mode=task_id model=%s", modelName)
+	}
 }
 
 func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {

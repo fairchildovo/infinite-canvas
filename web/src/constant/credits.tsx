@@ -1,6 +1,8 @@
 import type { ComponentProps } from "react";
 import { Zap } from "lucide-react";
 
+import { useConfigStore } from "@/stores/use-config-store";
+
 export function CreditSymbol({ className, ...props }: ComponentProps<"span">) {
     return (
         <span {...props} className={`inline-flex items-center justify-center ${className || ""}`}>
@@ -18,8 +20,9 @@ function modelCreditCost(modelCosts: ModelCreditCost[] | undefined, model: strin
     return modelCosts?.find((item) => item.model === model)?.credits || 0;
 }
 
-export function requestCreditCost(options: { channelMode: string; modelCosts?: ModelCreditCost[]; model: string; count?: string | number }) {
-    if (options.channelMode !== "remote") return 0;
+export function requestCreditCost(options: { model: string; count?: string | number }) {
+    const modelCosts = useConfigStore.getState().publicSettings?.modelChannel?.modelCosts;
+    if (!modelCosts?.length) return 0;
     const count = Math.max(1, Math.floor(Math.abs(Number(options.count)) || 1));
-    return modelCreditCost(options.modelCosts, options.model) * count;
+    return modelCreditCost(modelCosts, options.model) * count;
 }

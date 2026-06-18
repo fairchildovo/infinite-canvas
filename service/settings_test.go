@@ -98,3 +98,93 @@ func TestNormalizeSettingsPublishesEnabledChannelModelsAndRepairsDefaults(t *tes
 		t.Fatalf("default video model = %q, want seedance", channel.DefaultVideoModel)
 	}
 }
+
+func TestNormalizeSettingsPublishesDisplayModelAliasesAndRepairsDefaults(t *testing.T) {
+	settings := normalizeSettings(model.Settings{
+		Public: model.PublicSetting{
+			ModelChannel: model.PublicModelChannelSetting{
+				DefaultModel:      "missing-text",
+				DefaultImageModel: "missing-image",
+				DefaultVideoModel: "missing-video",
+				ModelCosts: []model.ModelCost{
+					{Model: "即梦视频 2.0 Pro", Credits: 12},
+					{Model: "doubao-seedance-2.0-pro", Credits: 99},
+				},
+			},
+		},
+		Private: model.PrivateSetting{
+			Channels: []model.ModelChannel{
+				{
+					Enabled: true,
+					Models:  []string{"gpt-5.5", "doubao-seedance-2.0-pro", "doubao-seedream-5.0-lite"},
+					ModelAliases: []model.ModelAlias{
+						{Model: "doubao-seedance-2.0-pro", DisplayName: "即梦视频 2.0 Pro"},
+						{Model: "doubao-seedream-5.0-lite", DisplayName: "即梦图片 Lite"},
+					},
+				},
+				{
+					Enabled: true,
+					Models:  []string{"doubao-seedance-2.0-pro"},
+					ModelAliases: []model.ModelAlias{
+						{Model: "doubao-seedance-2.0-pro", DisplayName: "即梦视频 2.0 Pro"},
+					},
+				},
+			},
+		},
+	})
+
+	channel := settings.Public.ModelChannel
+	wantModels := []string{"gpt-5.5", "即梦视频 2.0 Pro", "即梦图片 Lite"}
+	if !reflect.DeepEqual(channel.AvailableModels, wantModels) {
+		t.Fatalf("available models = %#v, want %#v", channel.AvailableModels, wantModels)
+	}
+	if channel.DefaultModel != "gpt-5.5" {
+		t.Fatalf("default model = %q, want text model", channel.DefaultModel)
+	}
+	if channel.DefaultImageModel != "即梦图片 Lite" {
+		t.Fatalf("default image model = %q, want display image model", channel.DefaultImageModel)
+	}
+	if channel.DefaultVideoModel != "即梦视频 2.0 Pro" {
+		t.Fatalf("default video model = %q, want display video model", channel.DefaultVideoModel)
+	}
+	if channel.ModelCosts[0].Model != "即梦视频 2.0 Pro" {
+		t.Fatalf("model cost model = %q, want public display model", channel.ModelCosts[0].Model)
+	}
+}
+
+func TestMatchChannelModelMatchesDisplayNameBeforeRawModel(t *testing.T) {
+	channel := model.ModelChannel{
+		Models: []string{"doubao-seedance-2.0-pro", "即梦视频 2.0 Pro"},
+		ModelAliases: []model.ModelAlias{
+			{Model: "doubao-seedance-2.0-pro", DisplayName: "即梦视频 2.0 Pro"},
+		},
+	}
+
+	raw, ok := MatchChannelModel(channel, "即梦视频 2.0 Pro")
+	if !ok || raw != "doubao-seedance-2.0-pro" {
+		t.Fatalf("MatchChannelModel display = %q %v, want raw model", raw, ok)
+	}
+	raw, ok = MatchChannelModel(channel, "doubao-seedance-2.0-pro")
+	if !ok || raw != "doubao-seedance-2.0-pro" {
+		t.Fatalf("MatchChannelModel raw = %q %v, want raw model", raw, ok)
+	}
+}
+
+func TestNormalizePrivateSettingConvertsLegacyPrefixToAliases(t *testing.T) {
+	settings := normalizeSettings(model.Settings{
+		Private: model.PrivateSetting{
+			Channels: []model.ModelChannel{
+				{Enabled: true, Prefix: "ark-", Models: []string{"doubao-seedance-2.0-pro"}},
+			},
+		},
+	})
+
+	channel := settings.Private.Channels[0]
+	wantAliases := []model.ModelAlias{{Model: "doubao-seedance-2.0-pro", DisplayName: "ark-doubao-seedance-2.0-pro"}}
+	if !reflect.DeepEqual(channel.ModelAliases, wantAliases) {
+		t.Fatalf("model aliases = %#v, want %#v", channel.ModelAliases, wantAliases)
+	}
+	if got := settings.Public.ModelChannel.AvailableModels; !reflect.DeepEqual(got, []string{"ark-doubao-seedance-2.0-pro"}) {
+		t.Fatalf("available models = %#v, want legacy prefixed public model", got)
+	}
+}

@@ -46,8 +46,8 @@ description: settings 表中 public 和 private 配置结构说明
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `availableModels` | string[] | 系统可用模型；保存设置时会自动合并所有已启用私有渠道的模型 |
-| `modelCosts` | object[] | 模型算力点配置，后端模型接口调用前按模型预扣，上游失败时返还；未配置默认不扣除 |
+| `availableModels` | string[] | 系统可用模型公开名称；保存设置时会自动合并所有已启用私有渠道的 `displayName || model` |
+| `modelCosts` | object[] | 模型算力点配置，按公开模型名配置和扣除；后端模型接口调用前预扣，上游失败时返还；未配置默认不扣除 |
 | `defaultModel` | string | 默认模型，从 `availableModels` 中选择；为空或失效时优先选择文本模型 |
 | `defaultImageModel` | string | 默认图片模型，从 `availableModels` 中选择；为空或失效时优先选择 `seedream`、`image`、`gpt-image` 模型 |
 | `defaultVideoModel` | string | 默认视频模型，从 `availableModels` 中选择；为空或失效时优先选择 `seedance`、`video` 模型 |
@@ -59,7 +59,7 @@ description: settings 表中 public 和 private 配置结构说明
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `model` | string | 模型名称 |
+| `model` | string | 公开模型名，即 `displayName || model` |
 | `credits` | number | 每次后端模型接口调用前预扣的算力点 |
 
 用户侧请求模式：
@@ -87,6 +87,9 @@ description: settings 表中 public 和 private 配置结构说明
       "baseUrl": "https://api.example.com",
       "apiKey": "sk-xxx",
       "models": ["gpt-5.5", "gpt-image-2"],
+      "modelAliases": [
+        { "model": "gpt-image-2", "displayName": "默认图片模型" }
+      ],
       "weight": 1,
       "enabled": true,
       "remark": ""
@@ -112,12 +115,20 @@ description: settings 表中 public 和 private 配置结构说明
 | `name` | string | 渠道名称 |
 | `baseUrl` | string | OpenAI 兼容接口地址 |
 | `apiKey` | string | 渠道密钥 |
-| `models` | string[] | 该渠道可用模型 |
+| `models` | string[] | 该渠道可用的真实上游模型名 |
+| `modelAliases` | object[] | 真实模型名到前台完整显示名称的映射；公开列表、默认模型和算力点价格都使用 `displayName || model` |
 | `weight` | number | 渠道权重；同一模型有多个可用渠道时按权重随机 |
 | `enabled` | boolean | 是否启用 |
 | `remark` | string | 备注 |
 
-后端调用模型时，会从已启用、已配置 `baseUrl` 和 `apiKey`、且 `models` 包含目标模型的渠道中选择一个。
+`modelAliases` 每项字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `model` | string | 真实上游模型名，必须来自同渠道 `models` |
+| `displayName` | string | 前台完整显示名称；为空时使用真实模型名 |
+
+后端调用模型时，会从已启用、已配置 `baseUrl` 和 `apiKey`、且公开模型名或真实模型名匹配的渠道中选择一个，并在请求上游前还原成真实模型名。
 
 `promptSync` 字段：
 

@@ -155,12 +155,12 @@ function preferredModel(models: string[], predicate: (model: string) => boolean)
 
 function isVideoModelName(model: string) {
     const value = modelOptionName(model).toLowerCase();
-    return value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("kling") || value.includes("wan") || value.includes("hailuo");
+    return value.includes("seedance") || value.includes("video") || value.includes("视频") || value.includes("sora") || value.includes("veo") || value.includes("kling") || value.includes("wan") || value.includes("hailuo");
 }
 
 function isImageModelName(model: string) {
     const value = modelOptionName(model).toLowerCase();
-    return !isVideoModelName(model) && !isAudioModelName(model) && (value.includes("seedream") || value.includes("gpt-image") || value.includes("image") || value.includes("dall-e") || value.includes("dalle") || value.includes("imagen") || value.includes("flux") || value.includes("sdxl") || value.includes("stable-diffusion") || value.includes("midjourney"));
+    return !isVideoModelName(model) && !isAudioModelName(model) && (value.includes("seedream") || value.includes("gpt-image") || value.includes("image") || value.includes("图片") || value.includes("dall-e") || value.includes("dalle") || value.includes("imagen") || value.includes("flux") || value.includes("sdxl") || value.includes("stable-diffusion") || value.includes("midjourney"));
 }
 
 function isAudioModelName(model: string) {
@@ -324,8 +324,8 @@ export function normalizeModelOptionValue(value: string | undefined, channels: M
         const channel = channels.find((item) => item.id === decoded.channelId);
         return channel && channel.models.includes(decoded.model) ? model : "";
     }
-    const channel = channels.find((item) => item.models.includes(decoded?.model || model)) || channels[0];
-    return channel && channel.models.includes(decoded?.model || model) ? encodeChannelModel(channel.id, decoded?.model || model) : model;
+    const channel = channels.find((item) => item.models.includes(model)) || channels[0];
+    return channel && channel.models.includes(model) ? encodeChannelModel(channel.id, model) : model;
 }
 
 export function resolveModelChannel(config: AiConfig, value: string) {

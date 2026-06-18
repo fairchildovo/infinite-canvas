@@ -161,11 +161,17 @@ export type AdminModelChannel = {
     name: string;
     baseUrl: string;
     apiKey: string;
-    prefix: string;
+    prefix?: string;
     models: string[];
+    modelAliases: AdminModelAlias[];
     weight: number;
     enabled: boolean;
     remark: string;
+};
+
+export type AdminModelAlias = {
+    model: string;
+    displayName: string;
 };
 
 export type AdminPublicModelChannelSettings = {

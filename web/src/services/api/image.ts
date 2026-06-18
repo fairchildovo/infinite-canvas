@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildApiUrl, defaultConfig, resolveModelRequestConfig, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -44,9 +44,11 @@ export type ToolResponseResult = {
 type ToolChoice = "auto" | "required" | { type: "function"; name: string };
 type ResponseMessageContent = AiTextMessage["content"] | string;
 type ResponseInputContent = { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
+type ResponseFunctionCallInput = { type: "function_call"; call_id: string; name: string; arguments: string };
+type ResponseToolOutputMessage = { role: "tool"; tool_call_id: string; content: string };
 type ResponseInputItem =
     | { role: "system" | "user" | "assistant"; content: string | ResponseInputContent[] }
-    | { type: "function_call"; call_id: string; name: string; arguments: string }
+    | ResponseFunctionCallInput
     | { type: "function_call_output"; call_id: string; output: string };
 type ResponseApiToolDefinition = {
     type: "function";
@@ -247,11 +249,18 @@ function refreshRemoteUser(config: AiConfig) {
     if (config.channelMode === "remote") void useUserStore.getState().hydrateUser();
 }
 
+function isResponseFunctionCallInput(message: ResponseInputMessage): message is ResponseFunctionCallInput {
+    return "type" in message && message.type === "function_call";
+}
+
+function isResponseToolOutputMessage(message: ResponseInputMessage): message is ResponseToolOutputMessage {
+    return "role" in message && message.role === "tool";
+}
 
 function toResponseInput(messages: ResponseInputMessage[]): ResponseInputItem[] {
     return messages.map((message) => {
-        if ("type" in message && message.type === "function_call") return message as ResponseInputItem;
-        if ("role" in message && message.role === "tool") return { type: "function_call_output", call_id: message.tool_call_id, output: typeof message.content === "string" ? message.content : JSON.stringify(message.content) };
+        if (isResponseFunctionCallInput(message)) return message;
+        if (isResponseToolOutputMessage(message)) return { type: "function_call_output", call_id: message.tool_call_id, output: typeof message.content === "string" ? message.content : JSON.stringify(message.content) };
         const role = message.role;
         const rawContent = message.content;
         const content: string | ResponseInputContent[] = typeof rawContent === "string"
@@ -497,7 +506,7 @@ export async function fetchImageModels(config: AiConfig) {
 }
 
 export async function fetchChannelModels(channel: ModelChannel) {
-    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey });
+    return fetchImageModels({ ...defaultConfig, channelMode: "local", baseUrl: channel.baseUrl, apiKey: channel.apiKey });
 }
 
 

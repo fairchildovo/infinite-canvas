@@ -118,8 +118,8 @@ description: 当前后端主要数据表与字段说明
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `availableModels` | string[] | 系统可用模型列表 |
-| `modelCosts` | object[] | 模型算力点配置 |
+| `availableModels` | string[] | 系统可用模型公开名称列表，即已启用私有渠道的 `displayName || model` |
+| `modelCosts` | object[] | 模型算力点配置，按公开模型名配置 |
 | `defaultModel` | string | 默认模型 |
 | `defaultImageModel` | string | 默认图片模型 |
 | `defaultVideoModel` | string | 默认视频模型 |
@@ -131,7 +131,7 @@ description: 当前后端主要数据表与字段说明
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `model` | string | 模型名称 |
+| `model` | string | 公开模型名，即 `displayName || model` |
 | `credits` | number | 每次后端模型接口调用前预扣的算力点，未配置默认不扣除 |
 
 `auth.linuxDo` 当前字段：
@@ -156,8 +156,8 @@ description: 当前后端主要数据表与字段说明
 | `name` | string | 渠道名称 |
 | `baseUrl` | string | 渠道接口地址 |
 | `apiKey` | string | 渠道密钥 |
-| `prefix` | string | 模型前缀，前台可用模型列表会自动拼接前缀，转发上游时剥离 |
-| `models` | string[] | 渠道可用模型列表 |
+| `models` | string[] | 渠道可用的真实上游模型名列表 |
+| `modelAliases` | object[] | 真实模型名到前台完整显示名称的映射 |
 | `weight` | number | 渠道权重，同一模型命中多个渠道时按权重随机 |
 | `enabled` | bool | 是否启用 |
 | `remark` | string | 备注 |
@@ -176,7 +176,14 @@ description: 当前后端主要数据表与字段说明
 | `clientId` | string | Linux.do OAuth App Client ID |
 | `clientSecret` | string | Linux.do OAuth App Client Secret，后台返回时隐藏 |
 
-后端请求模型时，先按模型名筛选启用且包含该模型的渠道，再按 `weight` 加权随机选择一个渠道。
+`modelAliases` 每项字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `model` | string | 真实上游模型名，必须来自同渠道 `models` |
+| `displayName` | string | 前台完整显示名称；为空时使用真实模型名 |
+
+后端请求模型时，先按公开模型名或真实模型名筛选启用渠道，再按 `weight` 加权随机选择一个渠道，并在请求上游前还原成真实模型名。旧配置中的 `prefix` 只用于归一化时初始化显示名称，不再作为主要路由逻辑。
 
 ### credit_logs
 
