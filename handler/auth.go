@@ -144,6 +144,20 @@ func AdminCreditLogs(w http.ResponseWriter, r *http.Request) {
 	OK(w, logs)
 }
 
+func CreditLogs(w http.ResponseWriter, r *http.Request) {
+	user, ok := service.UserFromContext(r.Context())
+	if !ok {
+		Fail(w, "未登录或权限不足")
+		return
+	}
+	logs, err := service.ListUserCreditLogs(user.ID, parseQuery(r))
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, logs)
+}
+
 func AdminSaveCreditLog(w http.ResponseWriter, r *http.Request) {
 	var log model.CreditLog
 	_ = json.NewDecoder(r.Body).Decode(&log)

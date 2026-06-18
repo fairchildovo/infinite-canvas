@@ -171,7 +171,28 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, onFailure func
 		}
 	}
 	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	copyAIResponseBody(w, response.Body)
+}
+
+func copyAIResponseBody(w http.ResponseWriter, body io.Reader) {
+	flusher, canFlush := w.(http.Flusher)
+	if !canFlush {
+		_, _ = io.Copy(w, body)
+		return
+	}
+	buffer := make([]byte, 32*1024)
+	for {
+		n, err := body.Read(buffer)
+		if n > 0 {
+			if _, writeErr := w.Write(buffer[:n]); writeErr != nil {
+				return
+			}
+			flusher.Flush()
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func readAIRequest(r *http.Request) ([]byte, string, string, error) {

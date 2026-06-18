@@ -75,4 +75,4 @@ project-004-infinite-canvas/
 - Git remote 指向 fairchildovo 的 fork。
 - Docker 快速启动：`cp .env.example .env && docker-compose up -d`
 - 本地源码构建：`docker compose -f docker-compose.local.yml up -d --build`
-- 默认端口 3000，管理员 admin / infinite-canvas
+- 默认端口 3000，管理员 admin / admin

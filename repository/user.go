@@ -148,6 +148,22 @@ func ListCreditLogs(q model.Query) ([]model.CreditLog, int64, error) {
 	return logs, total, err
 }
 
+func ListUserCreditLogs(userID string, q model.Query) ([]model.CreditLog, int64, error) {
+	db, err := DB()
+	if err != nil {
+		return nil, 0, err
+	}
+	q.Normalize()
+	tx := db.Model(&model.CreditLog{}).Where("user_id = ?", userID)
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var logs []model.CreditLog
+	err = tx.Order("created_at desc").Offset(q.Offset()).Limit(q.PageSize).Find(&logs).Error
+	return logs, total, err
+}
+
 func DeleteCreditLog(id string) error {
 	db, err := DB()
 	if err != nil {

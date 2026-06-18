@@ -1,0 +1,151 @@
+package handler_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/basketikun/infinite-canvas/config"
+	"github.com/basketikun/infinite-canvas/model"
+	"github.com/basketikun/infinite-canvas/repository"
+	"github.com/basketikun/infinite-canvas/router"
+	"github.com/basketikun/infinite-canvas/service"
+)
+
+type capturedAIRequest struct {
+	path          string
+	authorization string
+	body          []byte
+}
+
+func TestAIChatCompletionsProxyStreamsAndRewritesAlias(t *testing.T) {
+	previousConfig := config.Cfg
+	t.Cleanup(func() { config.Cfg = previousConfig })
+
+	upstreamRequests := make(chan capturedAIRequest, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		upstreamRequests <- capturedAIRequest{
+			path:          r.URL.Path,
+			authorization: r.Header.Get("Authorization"),
+			body:          body,
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = w.Write([]byte("data: first\n\n"))
+		w.(http.Flusher).Flush()
+		time.Sleep(400 * time.Millisecond)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		w.(http.Flusher).Flush()
+	}))
+	defer upstream.Close()
+
+	config.Cfg = config.Config{
+		StorageDriver:  "sqlite",
+		DatabaseDSN:    "file:ai-proxy-test?mode=memory&cache=shared",
+		JWTSecret:      "test-secret",
+		JWTExpireHours: 1,
+	}
+	_, err := repository.SaveSettings(model.Settings{
+		Private: model.PrivateSetting{
+			Channels: []model.ModelChannel{{
+				Name:    "test-upstream",
+				BaseURL: upstream.URL,
+				APIKey:  "upstream-key",
+				Models:  []string{"gpt-5-5"},
+				ModelAliases: []model.ModelAlias{{
+					Model:       "gpt-5-5",
+					DisplayName: "gpt-5.5",
+				}},
+				Weight:  1,
+				Enabled: true,
+			}},
+		},
+	}, time.Now().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	session, err := service.Register("agent-user", "secret")
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+
+	server := httptest.NewServer(router.New())
+	defer server.Close()
+
+	payload := map[string]any{
+		"model":    "gpt-5.5",
+		"messages": []map[string]string{{"role": "user", "content": "hi"}},
+		"stream":   true,
+	}
+	body, _ := json.Marshal(payload)
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+session.Token)
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("chat proxy request: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		responseBody, _ := io.ReadAll(response.Body)
+		t.Fatalf("status = %d body = %s", response.StatusCode, responseBody)
+	}
+	if contentType := response.Header.Get("Content-Type"); !strings.Contains(contentType, "text/event-stream") {
+		t.Fatalf("content type = %q, want text/event-stream", contentType)
+	}
+
+	firstChunk := make(chan string, 1)
+	go func() {
+		buffer := make([]byte, 64)
+		n, _ := response.Body.Read(buffer)
+		firstChunk <- string(buffer[:n])
+	}()
+	select {
+	case chunk := <-firstChunk:
+		if !strings.Contains(chunk, "data: first") {
+			t.Fatalf("first chunk = %q, want SSE data", chunk)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("timed out waiting for first SSE chunk")
+	}
+	rest, _ := io.ReadAll(response.Body)
+	if !strings.Contains(string(rest), "data: [DONE]") {
+		t.Fatalf("rest = %q, want done chunk", string(rest))
+	}
+
+	var captured capturedAIRequest
+	select {
+	case captured = <-upstreamRequests:
+	case <-time.After(time.Second):
+		t.Fatal("upstream did not receive request")
+	}
+	if captured.path != "/v1/chat/completions" {
+		t.Fatalf("upstream path = %q, want /v1/chat/completions", captured.path)
+	}
+	if captured.authorization != "Bearer upstream-key" {
+		t.Fatalf("upstream authorization = %q", captured.authorization)
+	}
+	var upstreamPayload struct {
+		Model  string `json:"model"`
+		Stream bool   `json:"stream"`
+	}
+	if err := json.Unmarshal(captured.body, &upstreamPayload); err != nil {
+		t.Fatalf("decode upstream body: %v", err)
+	}
+	if upstreamPayload.Model != "gpt-5-5" {
+		t.Fatalf("upstream model = %q, want alias target", upstreamPayload.Model)
+	}
+	if !upstreamPayload.Stream {
+		t.Fatal("upstream stream = false, want true")
+	}
+}
