@@ -198,6 +198,9 @@ export type AdminPublicSettings = {
             enabled: boolean;
         };
     };
+    billing: {
+        rechargeUrl: string;
+    };
 };
 
 export type AdminPrivateSettings = {
@@ -239,4 +242,14 @@ export async function fetchChannelModels(token: string, payload: AdminChannelAct
 
 export async function testChannelModel(token: string, payload: AdminChannelActionRequest) {
     return apiPost<string>("/api/admin/settings/channel-test", payload, token);
+}
+
+export type AdminSystemUpdateResult = {
+    stage: string;
+    status: string;
+    log: string;
+};
+
+export async function triggerAdminSystemUpdate(token: string) {
+    return apiPost<AdminSystemUpdateResult>("/api/admin/system/update", {}, token);
 }

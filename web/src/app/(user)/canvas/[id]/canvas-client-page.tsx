@@ -10,7 +10,7 @@ import { requestEdit, requestGeneration, requestImageQuestion } from "@/services
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { requestVideoGeneration, storeGeneratedVideo } from "@/services/api/video";
 import { defaultConfig, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
-import { resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
+import { retainImage, resolveImageUrl, uploadImage, type UploadedImage } from "@/services/image-storage";
 import { resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
@@ -2290,7 +2290,12 @@ function InfiniteCanvasPage() {
 
     const insertAssistantImage = useCallback(
         async (image: CanvasAssistantImage) => {
-            const storedImage = image.storageKey ? { url: image.dataUrl, storageKey: image.storageKey, width: 1, height: 1, bytes: 0, mimeType: "image/png" } : await uploadImage(image.dataUrl);
+            const retained = await retainImage({ storageKey: image.storageKey, dataUrl: image.dataUrl });
+            if (retained.missing || !retained.url) {
+                message.error("图片文件缺失，无法插入画布");
+                return;
+            }
+            const storedImage = retained.storageKey ? { url: retained.url, storageKey: retained.storageKey, width: retained.width || 1, height: retained.height || 1, bytes: retained.bytes || 0, mimeType: retained.mimeType || "image/png" } : await uploadImage(retained.url);
             const meta = storedImage.width === 1 && storedImage.height === 1 ? await readImageMeta(storedImage.url) : storedImage;
             const config = fitNodeSize(meta.width, meta.height);
             const center = screenToCanvas((containerRef.current?.getBoundingClientRect().left || 0) + size.width / 2, (containerRef.current?.getBoundingClientRect().top || 0) + size.height / 2);
@@ -2310,7 +2315,7 @@ function InfiniteCanvasPage() {
             setSelectedConnectionId(null);
             setDialogNodeId(id);
         },
-        [screenToCanvas, size.height, size.width],
+        [message, screenToCanvas, size.height, size.width],
     );
 
     const insertAssistantText = useCallback(
@@ -2987,21 +2992,32 @@ async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
 async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
-            const content = node.metadata?.content;
+            const content = node.metadata?.content || "";
             if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
-            if (node.type !== CanvasNodeType.Image || !content) return node;
-            if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveImageUrl(node.metadata.storageKey, content) } };
-            if (!content.startsWith("data:image/")) return node;
-            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await uploadImage(content)) } };
+            if (node.type !== CanvasNodeType.Image) return node;
+            if (node.metadata?.storageKey) {
+                const image = await retainImage({ storageKey: node.metadata.storageKey, dataUrl: content });
+                if (image.missing || !image.url) return { ...node, metadata: { ...node.metadata, content: "", status: NODE_STATUS_ERROR, errorDetails: "图片文件缺失，请重新上传或重新导入包含图片文件的画布包。" } };
+                return { ...node, metadata: { ...node.metadata, content: image.url, naturalWidth: image.width || node.metadata.naturalWidth, naturalHeight: image.height || node.metadata.naturalHeight, bytes: image.bytes || node.metadata.bytes, mimeType: image.mimeType || node.metadata.mimeType } };
+            }
+            if (!content) return node;
+            if (!content.startsWith("data:image/") && !content.startsWith("blob:")) return node;
+            const image = await retainImage({ dataUrl: content });
+            if (image.missing || !image.storageKey) return { ...node, metadata: { ...node.metadata, content: "", status: NODE_STATUS_ERROR, errorDetails: "图片文件缺失，请重新上传图片。" } };
+            return { ...node, metadata: { ...node.metadata, ...imageMetadata(image as UploadedImage) } };
         }),
     );
 }
 
 async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
     const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string }>(item: T) => {
-        if (item.storageKey) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) };
-        if (item.dataUrl?.startsWith("data:image/")) {
-            const image = await uploadImage(item.dataUrl);
+        if (item.storageKey) {
+            const image = await retainImage({ storageKey: item.storageKey, dataUrl: item.dataUrl });
+            return { ...item, dataUrl: image.url || "", storageKey: item.storageKey };
+        }
+        if (item.dataUrl?.startsWith("data:image/") || item.dataUrl?.startsWith("blob:")) {
+            const image = await retainImage({ dataUrl: item.dataUrl });
+            if (!image.storageKey) return { ...item, dataUrl: "" };
             return { ...item, dataUrl: image.url, storageKey: image.storageKey };
         }
         return item;

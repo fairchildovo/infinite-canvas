@@ -551,6 +551,13 @@ function ImageContent({
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
+    const [loadFailed, setLoadFailed] = useState(false);
+
+    useEffect(() => {
+        setLoadFailed(false);
+    }, [node.metadata?.content]);
+
+    if (loadFailed) return <MissingImageContent theme={theme} />;
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
@@ -559,6 +566,7 @@ function ImageContent({
                     src={node.metadata!.content!}
                     alt={node.title}
                     draggable={false}
+                    onError={() => setLoadFailed(true)}
                     onDragStart={(event) => event.preventDefault()}
                     className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
                 />
@@ -597,6 +605,16 @@ function ImageContent({
                 </button>
             ) : null}
         </BatchFrame>
+    );
+}
+
+function MissingImageContent({ theme }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-3xl border border-amber-300/60 px-5 text-center" style={{ background: theme.node.fill, color: theme.node.text }}>
+            <ImageIcon className="size-7 text-amber-500" />
+            <div className="text-sm font-medium">图片文件缺失</div>
+            <div className="max-w-52 text-xs leading-5 opacity-60">请重新上传图片，或重新导入包含图片文件的画布包。</div>
+        </div>
     );
 }
 

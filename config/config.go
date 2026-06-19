@@ -23,6 +23,9 @@ type Config struct {
 	LinuxDoAuthorizeURL string `env:"LINUX_DO_AUTHORIZE_URL" envDefault:"https://connect.linux.do/oauth2/authorize"`
 	LinuxDoTokenURL     string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`
 	LinuxDoUserInfoURL  string `env:"LINUX_DO_USERINFO_URL" envDefault:"https://connect.linux.do/api/user"`
+	SystemUpdateEnabled bool   `env:"SYSTEM_UPDATE_ENABLED" envDefault:"false"`
+	SystemUpdateWorkDir string `env:"SYSTEM_UPDATE_WORK_DIR"`
+	SystemUpdateCompose string `env:"SYSTEM_UPDATE_COMPOSE_FILE" envDefault:"docker-compose.yml"`
 }
 
 var Cfg Config

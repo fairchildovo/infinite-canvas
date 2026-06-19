@@ -4,6 +4,7 @@ import { Typography } from "antd";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AnnouncementContent } from "@/components/announcement-content";
 import { fetchAnnouncements, type Announcement } from "@/services/api/announcements";
 
 const DISMISSED_KEY = "announcement-banner-dismissed";
@@ -19,7 +20,8 @@ export function AnnouncementBanner() {
         }
         fetchAnnouncements()
             .then((data) => {
-                if (data.length > 0) setItems(data);
+                const banners = data.filter((item) => item.placement === "banner");
+                if (banners.length > 0) setItems(banners);
             })
             .catch(() => {});
     }, []);
@@ -41,7 +43,7 @@ export function AnnouncementBanner() {
                     <Typography.Text strong>{first.title}</Typography.Text>
                     {first.content ? (
                         <Typography.Text type="secondary" className="ml-2">
-                            {first.content}
+                            <AnnouncementContent content={first.content} />
                         </Typography.Text>
                     ) : null}
                     {remaining > 0 ? (

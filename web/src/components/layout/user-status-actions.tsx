@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from "react";
-import { App, Avatar, Dropdown, Modal, Table, Tag, Tooltip, Typography } from "antd";
+import { App, Avatar, Button, Dropdown, Modal, Table, Tag, Tooltip, Typography } from "antd";
 import type { TableProps } from "antd";
 import dayjs from "dayjs";
 import { Gift, Keyboard, LogOut, Settings2, Shield } from "lucide-react";
@@ -9,6 +9,7 @@ import type { ItemType } from "antd/es/menu/interface";
 import Link from "next/link";
 
 import { CouponRedeemModal } from "@/components/coupon-redeem-modal";
+import { AnnouncementNoticeButton } from "@/components/announcement-notice-button";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { VersionReleaseModal } from "@/components/layout/version-release-modal";
 import { CreditSymbol } from "@/constant/credits";
@@ -43,9 +44,11 @@ export function UserStatusActions({ showConfig = true, showVersion = false, vers
     const setTheme = useThemeStore((state) => state.setTheme);
     const user = useUserStore((state) => state.user);
     const token = useUserStore((state) => state.token);
+    const isUserReady = useUserStore((state) => state.isReady);
     const hydrateUser = useUserStore((state) => state.hydrateUser);
     const logout = useUserStore((state) => state.clearSession);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const rechargeUrl = useConfigStore((state) => state.publicSettings?.billing?.rechargeUrl?.trim() || "");
     const canvasTheme = canvasThemes[theme];
     const userName = user?.displayName || user?.username || "";
     const [redeemOpen, setRedeemOpen] = useState(false);
@@ -82,6 +85,7 @@ export function UserStatusActions({ showConfig = true, showVersion = false, vers
             ) : null}
             <AnimatedThemeToggler theme={theme} onThemeChange={setTheme} className={naturalIconClass} style={iconStyle} aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} />
             {showVersion ? <VersionReleaseModal style={versionStyle} source={versionSource} /> : null}
+            {isUserReady ? <AnnouncementNoticeButton userId={user?.id} className={naturalIconClass} style={iconStyle} /> : null}
             {user ? (
                 <Tooltip title="算力点变动记录" placement="bottom">
                     <button type="button" className={cn("flex h-8 shrink-0 items-center gap-1.5 px-1.5 text-xs font-medium tabular-nums opacity-75 transition hover:opacity-100", variant === "default" && "text-stone-600 hover:text-stone-950 dark:text-stone-300 dark:hover:text-white")} style={creditStyle} onClick={() => setCreditLogsOpen(true)}>
@@ -118,13 +122,13 @@ export function UserStatusActions({ showConfig = true, showVersion = false, vers
                 </div>
             ) : null}
         </div>
-            <CouponRedeemModal open={redeemOpen} onClose={() => setRedeemOpen(false)} />
-            <CreditLogsModal open={creditLogsOpen} onClose={() => setCreditLogsOpen(false)} token={token} hydrateUser={hydrateUser} />
+            <CouponRedeemModal open={redeemOpen} onClose={() => setRedeemOpen(false)} rechargeUrl={rechargeUrl} />
+            <CreditLogsModal open={creditLogsOpen} onClose={() => setCreditLogsOpen(false)} token={token} hydrateUser={hydrateUser} rechargeUrl={rechargeUrl} />
     </>
     );
 }
 
-function CreditLogsModal({ open, onClose, token, hydrateUser }: { open: boolean; onClose: () => void; token: string; hydrateUser: () => Promise<void> }) {
+function CreditLogsModal({ open, onClose, token, hydrateUser, rechargeUrl }: { open: boolean; onClose: () => void; token: string; hydrateUser: () => Promise<void>; rechargeUrl: string }) {
     const { message } = App.useApp();
     const [logs, setLogs] = useState<CreditLog[]>([]);
     const [total, setTotal] = useState(0);
@@ -193,6 +197,13 @@ function CreditLogsModal({ open, onClose, token, hydrateUser }: { open: boolean;
 
     return (
         <Modal title="算力点变动记录" open={open} onCancel={onClose} footer={null} destroyOnHidden width={760}>
+            {rechargeUrl ? (
+                <div className="mb-3 flex justify-end">
+                    <Button type="primary" size="small" href={rechargeUrl} target="_blank" rel="noreferrer">
+                        购买
+                    </Button>
+                </div>
+            ) : null}
             <Table<CreditLog>
                 rowKey="id"
                 size="small"

@@ -5,6 +5,7 @@ node_modules/
 !.env.example
 data/
 *.log
+server.exe
 *.tsbuildinfo
 .DS_Store
 .idea

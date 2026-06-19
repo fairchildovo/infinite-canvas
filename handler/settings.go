@@ -64,3 +64,12 @@ func AdminTestChannelModel(w http.ResponseWriter, r *http.Request) {
 	}
 	OK(w, result)
 }
+
+func AdminSystemUpdate(w http.ResponseWriter, r *http.Request) {
+	result, err := service.AdminTriggerSystemUpdate()
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, result)
+}

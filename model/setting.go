@@ -51,6 +51,11 @@ type PublicModelChannelSetting struct {
 type PublicSetting struct {
 	ModelChannel PublicModelChannelSetting `json:"modelChannel"`
 	Auth         PublicAuthSetting         `json:"auth"`
+	Billing      PublicBillingSetting      `json:"billing"`
+}
+
+type PublicBillingSetting struct {
+	RechargeURL string `json:"rechargeUrl"`
 }
 
 type PublicAuthSetting struct {

@@ -113,6 +113,7 @@ description: 当前后端主要数据表与字段说明
 | --- | --- | --- |
 | `modelChannel` | object | 模型渠道公开配置组 |
 | `auth` | object | 公开登录配置 |
+| `billing` | object | 公开计费入口配置 |
 
 `modelChannel` 当前字段：
 
@@ -139,6 +140,12 @@ description: 当前后端主要数据表与字段说明
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `enabled` | bool | 是否开启 Linux.do 登录 |
+
+`billing` 当前字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `rechargeUrl` | string | 前台算力点记录弹窗中的充值按钮跳转地址；为空时隐藏 |
 
 `private.value` 当前字段：
 
@@ -234,6 +241,8 @@ description: 当前后端主要数据表与字段说明
 | `id` | string | 主键 |
 | `title` | string | 标题 |
 | `content` | text | 公告内容 |
+| `placement` | string | 展示类型：`banner` 顶部横幅、`notice` 右上角公告列表 |
+| `popup` | bool | 是否对未读用户自动弹窗提醒 |
 | `active` | bool | 是否启用 |
 | `created_at` | string | 创建时间 |
 | `updated_at` | string | 更新时间 |

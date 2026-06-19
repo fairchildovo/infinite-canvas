@@ -4,6 +4,8 @@ export type Announcement = {
     id: string;
     title: string;
     content: string;
+    placement: "banner" | "notice";
+    popup: boolean;
     active: boolean;
     createdAt: string;
     updatedAt: string;

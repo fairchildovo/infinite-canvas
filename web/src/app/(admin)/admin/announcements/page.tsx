@@ -2,7 +2,7 @@
 
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { ProTable, type ProColumns } from "@ant-design/pro-components";
-import { Button, Card, Col, Flex, Form, Input, Modal, Row, Space, Switch, Tag, Tooltip, Typography } from "antd";
+import { Button, Card, Col, Flex, Form, Input, Modal, Row, Select, Space, Switch, Tag, Tooltip, Typography } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useState } from "react";
 
@@ -12,6 +12,8 @@ import { useAdminAnnouncements } from "./use-admin-announcements";
 type AnnouncementFormValues = {
     title: string;
     content: string;
+    placement: "banner" | "notice";
+    popup: boolean;
     active: boolean;
 };
 
@@ -25,7 +27,7 @@ export default function AdminAnnouncementsPage() {
     useEffect(() => setKeywordText(keyword), [keyword]);
 
     useEffect(() => {
-        if (editingItem) form.setFieldsValue({ title: editingItem.title || "", content: editingItem.content || "", active: editingItem.active ?? true });
+        if (editingItem) form.setFieldsValue({ title: editingItem.title || "", content: editingItem.content || "", placement: editingItem.placement || "notice", popup: editingItem.popup || false, active: editingItem.active ?? true });
     }, [editingItem, form]);
 
     const handleSave = async () => {
@@ -44,6 +46,18 @@ export default function AdminAnnouncementsPage() {
             dataIndex: "title",
             ellipsis: true,
             render: (_, item) => <Typography.Text strong ellipsis>{item.title}</Typography.Text>,
+        },
+        {
+            title: "类型",
+            dataIndex: "placement",
+            width: 100,
+            render: (_, item) => <Tag color={item.placement === "banner" ? "blue" : "default"}>{item.placement === "banner" ? "横幅" : "公告"}</Tag>,
+        },
+        {
+            title: "弹窗",
+            dataIndex: "popup",
+            width: 90,
+            render: (_, item) => <Tag color={item.popup ? "orange" : "default"}>{item.popup ? "提醒" : "不提醒"}</Tag>,
         },
         {
             title: "状态",
@@ -125,7 +139,7 @@ export default function AdminAnnouncementsPage() {
                     }
                     options={{ density: true, setting: true, reload: () => void refreshAnnouncements() }}
                     toolBarRender={() => [
-                        <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditingItem({ active: true })}>
+                        <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditingItem({ active: true, placement: "notice", popup: false })}>
                             新建公告
                         </Button>,
                     ]}
@@ -155,7 +169,22 @@ export default function AdminAnnouncementsPage() {
                             </Form.Item>
                         </Col>
                         <Col span={12}>
+                            <Form.Item name="placement" label="类型" rules={[{ required: true, message: "请选择类型" }]}>
+                                <Select
+                                    options={[
+                                        { label: "横幅", value: "banner" },
+                                        { label: "公告", value: "notice" },
+                                    ]}
+                                />
+                            </Form.Item>
+                        </Col>
+                        <Col span={12}>
                             <Form.Item name="active" label="启用" valuePropName="checked">
+                                <Switch />
+                            </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                            <Form.Item name="popup" label="弹窗提醒" valuePropName="checked">
                                 <Switch />
                             </Form.Item>
                         </Col>

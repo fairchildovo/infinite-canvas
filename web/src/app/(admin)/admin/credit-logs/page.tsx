@@ -27,7 +27,7 @@ export default function AdminCreditLogsPage() {
     useEffect(() => setKeywordText(keyword), [keyword]);
 
     useEffect(() => {
-        if (editingLog) form.setFieldsValue({ type: "admin_adjust", amount: 0, balance: 0, ...editingLog });
+        if (editingLog) form.setFieldsValue({ type: "admin_adjust", amount: 0, balance: 0, remark: "空投", ...editingLog });
     }, [editingLog, form]);
 
     const saveLog = async () => {
@@ -138,7 +138,7 @@ export default function AdminCreditLogsPage() {
                     }
                     options={{ density: true, setting: true, reload: () => void refreshLogs() }}
                     toolBarRender={() => [
-                        <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditingLog({ type: "admin_adjust", amount: 0, balance: 0 })}>
+                        <Button key="add" type="primary" icon={<PlusOutlined />} onClick={() => setEditingLog({ type: "admin_adjust", amount: 0, balance: 0, remark: "空投" })}>
                             新增
                         </Button>,
                     ]}

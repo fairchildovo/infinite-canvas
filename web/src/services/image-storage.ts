@@ -14,7 +14,16 @@ export type UploadedImage = {
     mimeType: string;
 };
 
+export type RetainedImage = Partial<UploadedImage> & {
+    url: string;
+    storageKey?: string;
+    missing?: boolean;
+    recovered?: boolean;
+};
+
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
+const imageLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_generation_logs" });
+const videoLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
 const objectUrls = new Map<string, string>();
 
 export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
@@ -32,10 +41,26 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
     const blob = await store.getItem<Blob>(storageKey);
-    if (!blob) return fallback;
+    if (!blob) return isBlobUrl(fallback) ? "" : fallback;
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
+}
+
+export async function retainImage(input: { storageKey?: string; url?: string; dataUrl?: string }): Promise<RetainedImage> {
+    const fallback = input.dataUrl || input.url || "";
+    if (input.storageKey) {
+        const stored = await store.getItem<Blob>(input.storageKey);
+        if (stored) return storedImage(input.storageKey, stored);
+        const recovered = await readRecoverableBlob(fallback);
+        if (!recovered) return { url: "", storageKey: input.storageKey, missing: true };
+        const url = await setImageBlob(input.storageKey, recovered);
+        const meta = await readImageMeta(url);
+        return { url, storageKey: input.storageKey, width: meta.width, height: meta.height, bytes: recovered.size, mimeType: recovered.type || meta.mimeType, recovered: true };
+    }
+    const recovered = await readRecoverableBlob(fallback);
+    if (recovered) return { ...(await uploadImage(recovered)), recovered: isBlobUrl(fallback) };
+    return { url: isBlobUrl(fallback) ? "" : fallback, missing: isBlobUrl(fallback) };
 }
 
 export async function getImageBlob(storageKey: string) {
@@ -50,14 +75,16 @@ export async function setImageBlob(storageKey: string, blob: Blob) {
 }
 
 export async function imageToDataUrl(image: { url?: string; dataUrl?: string; storageKey?: string }) {
-    const url = image.dataUrl || (await resolveImageUrl(image.storageKey, image.url || ""));
+    const url = image.storageKey ? await resolveImageUrl(image.storageKey, image.dataUrl || image.url || "") : image.dataUrl || image.url || "";
     if (!url || url.startsWith("data:")) return url;
     return blobToDataUrl(await (await fetch(url)).blob());
 }
 
-export async function deleteStoredImages(keys: Iterable<string>) {
+export async function deleteStoredImages(keys: Iterable<string>, usedData?: unknown) {
+    const protectedKeys = usedData ? collectImageStorageKeys(usedData) : new Set<string>();
     await Promise.all(
         Array.from(new Set(keys)).map(async (key) => {
+            if (protectedKeys.has(key)) return;
             const url = objectUrls.get(key);
             if (url) URL.revokeObjectURL(url);
             objectUrls.delete(key);
@@ -68,6 +95,7 @@ export async function deleteStoredImages(keys: Iterable<string>) {
 
 export async function cleanupUnusedImages(usedData: unknown) {
     const usedKeys = collectImageStorageKeys(usedData);
+    await collectImageLogStorageKeys(usedKeys);
     const unused: string[] = [];
     await store.iterate((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
@@ -76,6 +104,10 @@ export async function cleanupUnusedImages(usedData: unknown) {
 }
 
 export function collectImageStorageKeys(value: unknown, keys = new Set<string>()) {
+    if (typeof value === "string") {
+        if (value.startsWith("image:")) keys.add(value);
+        return keys;
+    }
     if (!value || typeof value !== "object") return keys;
     if ("storageKey" in value && typeof value.storageKey === "string" && value.storageKey.startsWith("image:")) keys.add(value.storageKey);
     Object.values(value).forEach((item) => (Array.isArray(item) ? item.forEach((child) => collectImageStorageKeys(child, keys)) : collectImageStorageKeys(item, keys)));
@@ -89,4 +121,35 @@ function blobToDataUrl(blob: Blob) {
         reader.onerror = () => reject(new Error("读取图片失败"));
         reader.readAsDataURL(blob);
     });
+}
+
+async function storedImage(storageKey: string, blob: Blob): Promise<RetainedImage> {
+    const url = objectUrls.get(storageKey) || URL.createObjectURL(blob);
+    objectUrls.set(storageKey, url);
+    return { url, storageKey, bytes: blob.size, mimeType: blob.type || "image/png" };
+}
+
+async function readRecoverableBlob(url: string) {
+    if (!url || (!url.startsWith("data:image/") && !isBlobUrl(url))) return null;
+    try {
+        const blob = await (await fetch(url)).blob();
+        return blob.size ? blob : null;
+    } catch {
+        return null;
+    }
+}
+
+function isBlobUrl(url: string) {
+    return url.startsWith("blob:");
+}
+
+async function collectImageLogStorageKeys(keys: Set<string>) {
+    await Promise.all(
+        [imageLogStore, videoLogStore].map((logStore) =>
+            logStore.iterate((value) => {
+                collectImageStorageKeys(value, keys);
+            }),
+        ),
+    );
+    return keys;
 }

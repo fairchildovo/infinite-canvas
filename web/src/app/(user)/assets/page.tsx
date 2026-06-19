@@ -158,13 +158,14 @@ export default function AssetsPage() {
             message.warning("暂无素材可导出");
             return;
         }
-        await exportAssets(validAssets);
+        const result = await exportAssets(validAssets);
+        if (result.missingFiles.length) message.warning(`导出完成，但有 ${result.missingFiles.length} 个图片文件缺失。`);
     };
 
     const importAssetZip = async (file?: File) => {
         if (!file) return;
         try {
-            const importedAssets = await readAssetPackage(file);
+            const { assets: importedAssets, missingFiles } = await readAssetPackage(file);
             importedAssets.forEach((asset) => {
                 const payload = { ...asset } as Record<string, unknown>;
                 delete payload.id;
@@ -172,7 +173,8 @@ export default function AssetsPage() {
                 delete payload.updatedAt;
                 addAsset(payload as Parameters<typeof addAsset>[0]);
             });
-            message.success(`已导入 ${importedAssets.length} 个素材`);
+            if (missingFiles.length) message.warning(`已导入 ${importedAssets.length} 个素材，但缺少 ${missingFiles.length} 个媒体文件。`);
+            else message.success(`已导入 ${importedAssets.length} 个素材`);
         } catch {
             message.error("导入失败，请选择有效的素材压缩包");
         } finally {
@@ -416,6 +418,8 @@ function AssetCard({ asset, onOpen, onEdit, onCopy, onDownload, onDelete }: { as
                 <button type="button" className="block w-full text-left" onClick={onOpen}>
                     {cover ? (
                         <img src={cover} alt={asset.title} className="aspect-[4/3] w-full object-cover" />
+                    ) : asset.kind === "image" && asset.data.storageKey ? (
+                        <MissingImageAsset />
                     ) : (
                         <div className="flex aspect-[4/3] items-center justify-center bg-stone-100 p-5 text-center text-sm leading-6 text-stone-600 dark:bg-stone-900 dark:text-stone-300">{asset.kind === "text" ? asset.data.content : "暂无封面"}</div>
                     )}
@@ -481,6 +485,8 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
                 <div className="space-y-5">
                     {cover ? (
                         <Image src={cover} alt={asset.title} className="rounded-lg" />
+                    ) : asset.kind === "image" && asset.data.storageKey ? (
+                        <MissingImageAsset />
                     ) : (
                         <div className="rounded-lg border border-stone-200 bg-stone-50 p-5 text-sm leading-6 text-stone-600 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-300">{asset.kind === "text" ? asset.data.content : "暂无封面"}</div>
                     )}
@@ -531,6 +537,10 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
             ) : null}
         </Drawer>
     );
+}
+
+function MissingImageAsset() {
+    return <div className="flex aspect-[4/3] items-center justify-center rounded-lg border border-amber-200 bg-amber-50 p-5 text-center text-sm leading-6 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">图片文件缺失</div>;
 }
 
 function assetSummary(asset: Asset) {

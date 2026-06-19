@@ -1,13 +1,13 @@
 "use client";
 
-import { CheckCircleOutlined, DeleteOutlined, FormatPainterOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, DeleteOutlined, FormatPainterOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, SyncOutlined } from "@ant-design/icons";
 import { json } from "@codemirror/lang-json";
 import { App, Button, Card, Checkbox, Col, Drawer, Flex, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography } from "antd";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { EditorView } from "@uiw/react-codemirror";
 
-import { fetchAdminSettings, fetchChannelModels, saveAdminSettings, testChannelModel, type AdminModelAlias, type AdminModelChannel, type AdminModelCost, type AdminSettings } from "@/services/api/admin";
+import { fetchAdminSettings, fetchChannelModels, saveAdminSettings, testChannelModel, triggerAdminSystemUpdate, type AdminModelAlias, type AdminModelChannel, type AdminModelCost, type AdminSettings } from "@/services/api/admin";
 import { useUserStore } from "@/stores/use-user-store";
 
 const CodeMirror = dynamic(() => import("@uiw/react-codemirror"), { ssr: false });
@@ -37,6 +37,7 @@ const emptySettings: AdminSettings = {
             allowCustomChannel: true,
         },
         auth: { allowRegister: true, linuxDo: { enabled: false } },
+        billing: { rechargeUrl: "" },
     },
     private: { channels: [], promptSync: { enabled: true, cron: "*/5 * * * *" }, auth: { linuxDo: { clientId: "", clientSecret: "" } } },
 };
@@ -72,6 +73,7 @@ export default function AdminSettingsPage() {
     const [isFetchingChannelModels, setIsFetchingChannelModels] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isUpdatingSystem, setIsUpdatingSystem] = useState(false);
     const [modelCosts, setModelCosts] = useState<AdminModelCost[]>([]);
     const [knownModels, setKnownModels] = useState<string[]>([]);
     const publicModels = Form.useWatch(["public", "modelChannel", "availableModels"], form) || [];
@@ -360,6 +362,30 @@ export default function AdminSettingsPage() {
         message.success("已保存");
     }
 
+    const triggerSystemUpdate = () => {
+        if (!token) return;
+        Modal.confirm({
+            title: "确认触发一键更新？",
+            content: "该操作会执行 docker compose pull 和重建容器。请求可能因容器重启中断，请稍后刷新页面确认状态。",
+            okText: "触发更新",
+            cancelText: "取消",
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                setIsUpdatingSystem(true);
+                try {
+                    const result = await triggerAdminSystemUpdate(token);
+                    message.success(result.status === "triggered" ? "已触发更新，容器可能正在重启，请稍后刷新" : result.log || "更新命令已返回");
+                } catch (error) {
+                    const text = error instanceof Error ? error.message : "触发更新失败";
+                    if (text.includes("接口连接失败")) message.warning("已触发更新，容器可能正在重启，请稍后刷新");
+                    else message.error(text);
+                } finally {
+                    setIsUpdatingSystem(false);
+                }
+            },
+        });
+    };
+
     return (
         <main style={{ padding: 24 }}>
             <Flex vertical gap={16}>
@@ -381,6 +407,14 @@ export default function AdminSettingsPage() {
                                 保存设置
                             </Button>
                         </Space>
+                    </Flex>
+                </Card>
+                <Card variant="borderless" title="维护 / 部署">
+                    <Flex justify="space-between" align="center" gap={16} wrap>
+                        <Typography.Text type="secondary">一键更新会拉取 `ghcr.io/fairchildovo/infinite-canvas` 镜像并重建 Docker Compose 服务。</Typography.Text>
+                        <Button danger icon={<SyncOutlined />} loading={isUpdatingSystem} onClick={triggerSystemUpdate}>
+                            一键更新
+                        </Button>
                     </Flex>
                 </Card>
 
@@ -454,6 +488,11 @@ export default function AdminSettingsPage() {
                                     <Col span={24}>
                                         <Form.Item name={["public", "auth", "allowRegister"]} label="是否允许用户注册" extra="关闭后隐藏注册入口，注册接口也会拒绝新用户创建" valuePropName="checked">
                                             <Switch />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col span={24}>
+                                        <Form.Item name={["public", "billing", "rechargeUrl"]} label="充值链接" extra="为空时前台算力点弹窗不显示充值按钮">
+                                            <Input placeholder="https://..." />
                                         </Form.Item>
                                     </Col>
                                     <Col span={24}>
@@ -890,6 +929,9 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
             linuxDo: {
                 enabled: setting.auth?.linuxDo?.enabled === true,
             },
+        },
+        billing: {
+            rechargeUrl: setting.billing?.rechargeUrl || "",
         },
     };
 }

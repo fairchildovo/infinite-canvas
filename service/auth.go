@@ -315,13 +315,18 @@ func AdjustUserCredits(id string, credits int) (model.User, error) {
 	user.UpdatedAt = now()
 	user, err = repository.SaveUser(user)
 	if err == nil && oldCredits != credits {
+		amount := credits - oldCredits
+		remark := "后台手动扣减"
+		if amount > 0 {
+			remark = "空投"
+		}
 		_, err = repository.SaveCreditLog(model.CreditLog{
 			ID:        newID("credit"),
 			UserID:    user.ID,
 			Type:      model.CreditLogTypeAdminAdjust,
-			Amount:    credits - oldCredits,
+			Amount:    amount,
 			Balance:   credits,
-			Remark:    "后台手动调整",
+			Remark:    remark,
 			CreatedAt: now(),
 		})
 	}

@@ -30,6 +30,10 @@ export default function CanvasPage() {
         router.push(`/canvas/${id}`);
     };
     const createAndEnter = () => enterProject(createProject(`无限画布 ${projects.length + 1}`));
+    const exportProjects = async (items: typeof projects, fileName: string) => {
+        const result = await exportCanvasProjects(items, fileName);
+        if (result.missingFiles.length) message.warning(`导出完成，但有 ${result.missingFiles.length} 个图片文件缺失，相关节点只能保留元数据。`);
+    };
     const importCanvas = async (file?: File) => {
         if (!file) return;
         try {
@@ -37,18 +41,23 @@ export default function CanvasPage() {
             const projectFile = zip.get("projects.json");
             if (!projectFile) throw new Error("missing projects.json");
             const data = JSON.parse(await projectFile.text()) as CanvasExportFile;
+            const missingFiles: string[] = [];
             await Promise.all(
                 data.projects.flatMap((project) =>
                     project.files.map(async (item) => {
                         const blob = zip.get(item.path);
-                        if (!blob) return;
+                        if (!blob) {
+                            missingFiles.push(item.storageKey);
+                            return;
+                        }
                         const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
                         await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
                     }),
                 ),
             );
             data.projects.forEach((item) => importProject(item.project));
-            message.success(`已导入 ${data.projects.length} 个画布`);
+            if (missingFiles.length) message.warning(`已导入 ${data.projects.length} 个画布，但缺少 ${missingFiles.length} 个媒体文件。`);
+            else message.success(`已导入 ${data.projects.length} 个画布`);
         } catch {
             message.error("导入失败，请选择有效的画布压缩包");
         } finally {
@@ -67,7 +76,7 @@ export default function CanvasPage() {
                     <div className="flex items-center gap-2">
                         {selectedIds.length ? (
                             <>
-                                <Button disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), `无限画布-${selectedIds.length}个项目`)}>
+                                <Button disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportProjects(projects.filter((project) => selectedIds.includes(project.id)), `无限画布-${selectedIds.length}个项目`)}>
                                     导出选中
                                 </Button>
                                 <Button disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>

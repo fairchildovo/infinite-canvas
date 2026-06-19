@@ -10,6 +10,10 @@ services:
       NO_PROXY: 127.0.0.1,localhost
     volumes:
       - ./data:/app/data
+      # 管理后台一键更新需要访问宿主机 Docker 和当前 compose 目录。
+      # 启用 SYSTEM_UPDATE_ENABLED=true 前，请把 SYSTEM_UPDATE_WORK_DIR 设为宿主机 compose 目录的绝对路径。
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SYSTEM_UPDATE_WORK_DIR:-.}:${SYSTEM_UPDATE_WORK_DIR:-/deploy/infinite-canvas}
     ports:
       - "3000:3000"
     restart: unless-stopped

@@ -18,8 +18,9 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/services/api/image";
-import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { deleteStoredImages, retainImage, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
+import { useCanvasStore } from "@/app/(user)/canvas/stores/use-canvas-store";
 import type { ReferenceImage } from "@/types/image";
 
 type GeneratedImage = {
@@ -243,7 +244,7 @@ export default function ImagePage() {
 
     const deleteSelectedLogs = () => {
         const imageKeys = logs.filter((log) => selectedLogIds.includes(log.id)).flatMap((log) => log.images.map((image) => image.storageKey).filter((key): key is string => Boolean(key)));
-        void Promise.all([deleteStoredImages(imageKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(refreshLogs);
+        void Promise.all([deleteStoredImages(imageKeys, { assets: useAssetStore.getState().assets, projects: useCanvasStore.getState().projects, logs: logs.filter((log) => !selectedLogIds.includes(log.id)) }), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(refreshLogs);
         if (previewLog && selectedLogIds.includes(previewLog.id)) {
             setPreviewLog(null);
             setResults([]);
@@ -712,13 +713,13 @@ async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog>
     const references = await Promise.all(
         (log.references || []).map(async (item) => ({
             ...item,
-            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl),
+            dataUrl: (await retainImage({ storageKey: item.storageKey, dataUrl: item.dataUrl })).url,
         })),
     );
     const images = await Promise.all(
         (log.images || []).map(async (item) => ({
             ...item,
-            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl),
+            dataUrl: (await retainImage({ storageKey: item.storageKey, dataUrl: item.dataUrl })).url,
         })),
     );
     const config = normalizeLogConfig(log);

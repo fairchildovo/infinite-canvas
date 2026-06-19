@@ -3,7 +3,7 @@
 import localforage from "localforage";
 
 import { getMediaBlob, resolveMediaUrl, setMediaBlob } from "@/services/file-storage";
-import { getImageBlob, resolveImageUrl, setImageBlob } from "@/services/image-storage";
+import { getImageBlob, retainImage, setImageBlob } from "@/services/image-storage";
 import { downloadWebdavFile, uploadWebdavFile, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import type { Asset } from "@/stores/use-asset-store";
 import { useAssetStore } from "@/stores/use-asset-store";
@@ -210,14 +210,19 @@ async function downloadMissingFiles<T>(config: WebdavSyncConfig, domain: DomainK
         return;
     }
     let downloaded = 0;
+    const missingDownloads: string[] = [];
     await runWithConcurrency(tasks, FILE_CONCURRENCY, async (remoteFile) => {
         const blob = await downloadWebdavFile(config, remoteFile.path);
-        if (!blob) return;
+        if (!blob) {
+            missingDownloads.push(remoteFile.storageKey);
+            return;
+        }
         const typedBlob = blob.type ? blob : blob.slice(0, blob.size, remoteFile.mimeType);
         await (remoteFile.storageKey.startsWith("image:") ? setImageBlob(remoteFile.storageKey, typedBlob) : setMediaBlob(remoteFile.storageKey, typedBlob));
         downloaded += 1;
         emitProgress(onProgress, { domain, label: domainLabel(domain), stage: "下载媒体", current: downloaded, total: tasks.length, status: "active" });
     });
+    if (missingDownloads.length) throw new Error(`${domainLabel(domain)} 有 ${missingDownloads.length} 个远端媒体文件缺失`);
 }
 
 async function uploadChangedFiles<T>(config: WebdavSyncConfig, domain: DomainKey, data: T, remoteFiles: AppSyncFile[], onProgress?: AppSyncProgress) {
@@ -226,6 +231,7 @@ async function uploadChangedFiles<T>(config: WebdavSyncConfig, domain: DomainKey
     const tasks: Array<{ item: AppSyncFile; blob: Blob }> = [];
     let uploadedFiles = 0;
     let uploadedBytes = 0;
+    const missingLocalFiles: string[] = [];
 
     const storageKeys = collectStorageKeys(data);
     let scanned = 0;
@@ -234,6 +240,7 @@ async function uploadChangedFiles<T>(config: WebdavSyncConfig, domain: DomainKey
         const remoteFile = remoteFileMap.get(storageKey);
         if (!blob) {
             if (remoteFile) files.push(remoteFile);
+            else missingLocalFiles.push(storageKey);
             scanned += 1;
             emitProgress(onProgress, { domain, label: domainLabel(domain), stage: "检查本地媒体", current: scanned, total: storageKeys.length, status: "active" });
             continue;
@@ -249,6 +256,8 @@ async function uploadChangedFiles<T>(config: WebdavSyncConfig, domain: DomainKey
         scanned += 1;
         emitProgress(onProgress, { domain, label: domainLabel(domain), stage: "检查本地媒体", current: scanned, total: storageKeys.length, status: "active" });
     }
+
+    if (missingLocalFiles.length) throw new Error(`${domainLabel(domain)} 有 ${missingLocalFiles.length} 个本地媒体文件缺失，无法完整同步`);
 
     if (!tasks.length) {
         emitProgress(onProgress, { domain, label: domainLabel(domain), stage: "媒体无需上传", current: 1, total: 1, status: "active" });
@@ -267,8 +276,8 @@ async function uploadChangedFiles<T>(config: WebdavSyncConfig, domain: DomainKey
 
 async function hydrateAsset(asset: Asset): Promise<Asset> {
     if (asset.kind === "image" && asset.data.storageKey) {
-        const dataUrl = await resolveImageUrl(asset.data.storageKey, asset.data.dataUrl);
-        return { ...asset, coverUrl: asset.coverUrl.startsWith("blob:") ? dataUrl : asset.coverUrl, data: { ...asset.data, dataUrl } };
+        const image = await retainImage({ storageKey: asset.data.storageKey, dataUrl: asset.data.dataUrl || asset.coverUrl });
+        return { ...asset, coverUrl: asset.coverUrl.startsWith("blob:") || asset.coverUrl.startsWith("data:image/") || !asset.coverUrl ? image.url : asset.coverUrl, data: { ...asset.data, dataUrl: image.url, width: image.width || asset.data.width, height: image.height || asset.data.height, bytes: image.bytes || asset.data.bytes, mimeType: image.mimeType || asset.data.mimeType } };
     }
     if (asset.kind === "video" && asset.data.storageKey) {
         const url = await resolveMediaUrl(asset.data.storageKey, asset.data.url);

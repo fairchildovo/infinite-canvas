@@ -9,9 +9,10 @@ import { useUserStore } from "@/stores/use-user-store";
 type CouponRedeemModalProps = {
     open: boolean;
     onClose: () => void;
+    rechargeUrl?: string;
 };
 
-export function CouponRedeemModal({ open, onClose }: CouponRedeemModalProps) {
+export function CouponRedeemModal({ open, onClose, rechargeUrl = "" }: CouponRedeemModalProps) {
     const { message } = App.useApp();
     const token = useUserStore((state) => state.token);
     const hydrateUser = useUserStore((state) => state.hydrateUser);
@@ -61,6 +62,11 @@ export function CouponRedeemModal({ open, onClose }: CouponRedeemModalProps) {
                     <Button type="primary" block loading={loading} onClick={() => void handleRedeem()}>
                         兑换
                     </Button>
+                    {rechargeUrl ? (
+                        <Button block href={rechargeUrl} target="_blank" rel="noreferrer">
+                            购买
+                        </Button>
+                    ) : null}
                 </Space>
             )}
         </Modal>

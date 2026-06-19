@@ -9,7 +9,8 @@ import (
 
 // ListActiveAnnouncements 获取前台公告。
 func ListActiveAnnouncements() ([]model.Announcement, error) {
-	return repository.ListActiveAnnouncements()
+	items, err := repository.ListActiveAnnouncements()
+	return normalizeAnnouncements(items), err
 }
 
 // ListAnnouncements 分页查询公告。
@@ -18,13 +19,17 @@ func ListAnnouncements(q model.Query) (model.AnnouncementList, error) {
 	if err != nil {
 		return model.AnnouncementList{}, err
 	}
-	return model.AnnouncementList{Items: items, Total: int(total)}, nil
+	return model.AnnouncementList{Items: normalizeAnnouncements(items), Total: int(total)}, nil
 }
 
 // SaveAnnouncement 保存公告。
 func SaveAnnouncement(a model.Announcement) (model.Announcement, error) {
 	if strings.TrimSpace(a.Title) == "" {
 		return model.Announcement{}, safeMessageError{message: "标题不能为空"}
+	}
+	a.Placement = strings.TrimSpace(a.Placement)
+	if a.Placement != "notice" {
+		a.Placement = "banner"
 	}
 	if a.ID == "" {
 		a.ID = newID("announcement")
@@ -37,4 +42,13 @@ func SaveAnnouncement(a model.Announcement) (model.Announcement, error) {
 // DeleteAnnouncement 删除公告。
 func DeleteAnnouncement(id string) error {
 	return repository.DeleteAnnouncement(id)
+}
+
+func normalizeAnnouncements(items []model.Announcement) []model.Announcement {
+	for i := range items {
+		if strings.TrimSpace(items[i].Placement) == "" {
+			items[i].Placement = "banner"
+		}
+	}
+	return items
 }

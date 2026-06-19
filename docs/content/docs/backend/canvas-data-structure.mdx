@@ -16,7 +16,7 @@ description: 画布本地存储、节点结构、媒体文件与清理机制
 - 图片 Blob：单独存到 `localForage` 实例，数据库名 `infinite-canvas`，storeName `image_files`。
 - 视频等媒体 Blob：单独存到 `localForage` 实例，数据库名 `infinite-canvas`，storeName `media_files`。
 
-画布 JSON 不直接长期保存大体积 base64 图片或视频。图片节点、视频节点、助手图片和素材媒体只保存展示 URL、`storageKey` 和元信息，真实 Blob 通过 `storageKey` 读取。
+画布 JSON 不直接长期保存大体积 base64 图片或视频。图片节点、视频节点、助手图片和素材媒体只保存展示 URL、`storageKey` 和元信息，真实 Blob 通过 `storageKey` 读取。`blob:` URL 只作为当前浏览器会话内的展示缓存，不能当作长期文件地址。
 
 ## 画布项目结构
 
@@ -196,29 +196,52 @@ type UploadedImage = {
 }
 ```
 
-因此，`content` 只适合当前浏览器会话展示，不能作为长期文件标识；长期标识是 `storageKey`。
+因此，`content` 只适合当前浏览器会话展示，不能作为长期文件标识；长期标识是 `storageKey`。刷新页面、重新打开浏览器、导入、同步后，都应以 `storageKey` 重新读取 Blob 并生成新的 `blob:` URL。
 
-## 图片读取和旧数据迁移
+## 图片读取、修复和旧数据迁移
 
 打开画布时会执行图片补水：
 
-- 如果图片节点有 `storageKey`，通过 `resolveImageUrl(storageKey, fallback)` 读取 Blob 并生成新的 `blob:` URL。
+- 如果图片节点有 `storageKey`，优先从 `image_files` 读取 Blob 并生成新的 `blob:` URL。
+- 如果 `storageKey` 存在但 Blob 缺失，会尝试从保存的 `data:image/...` 或当前会话仍可访问的 `blob:` fallback 重新写入同一个 `storageKey`。
 - 如果图片节点没有 `storageKey`，但 `content` 是旧的 `data:image/...`，会调用 `uploadImage(content)` 迁移到 `image_files`，并补上 `storageKey`。
+- 如果图片节点只有 `blob:` 且没有 `storageKey`，只有当前会话还能 `fetch` 到该 `blob:` 时才会补写；刷新浏览器后通常无法恢复。
+- 无法恢复时保留节点元数据，把节点标为错误状态并显示“图片文件缺失”，避免画布静默空白。
 - 助手消息里的引用图和生成图也会执行同类逻辑。
 
 我的素材读取时也会做迁移：
 
 - 有 `storageKey`：恢复 `coverUrl` 和 `data.dataUrl` 的可展示 URL。
+- `storageKey` 对应 Blob 缺失时，尝试从 `data:image/...` 或当前会话 `blob:` fallback 修复。
 - 无 `storageKey` 且保存了 base64：写入 `image_files`，然后更新素材里的 `storageKey`。
+- 无法恢复时保留素材记录，缩略图和详情显示“图片文件缺失”。
 
 ## 图片移除和清理
 
 图片不是在删除节点时立即按节点逐张删除，而是做引用清理：
 
 1. 删除节点、清空画布、删除画布、删除素材、删除助手会话时，会触发 `cleanupImages`。
-2. `cleanupImages` 会收集当前仍被画布项目、素材和额外传入数据引用的所有 `storageKey`。
-3. `cleanupUnusedImages` 遍历 `image_files` 中的全部图片。
-4. 不在引用集合里的图片会被删除。
-5. 删除时会同时 `URL.revokeObjectURL`，并从内存缓存 `objectUrls` 移除。
+2. `cleanupImages` 只有在画布 store 和素材 store 都已完成 hydration 后才会执行，避免页面恢复过程中状态暂时为空导致误删。
+3. `cleanupImages` 会收集当前仍被画布项目、素材、助手会话、画布历史记录、生成日志和额外传入数据引用的所有 `storageKey`。
+4. 收集范围包括对象字段 `storageKey`，也包括 `metadata.references` 这类字符串形式的 `image:<id>` 引用。
+5. `cleanupUnusedImages` 遍历 `image_files` 中的全部图片。
+6. 不在引用集合里的图片会被删除。
+7. 删除时会同时 `URL.revokeObjectURL`，并从内存缓存 `objectUrls` 移除。
 
-这套方式可以避免同一张图片被画布、素材或助手同时引用时误删。
+这套方式可以避免同一张图片被画布、素材、助手或生成日志同时引用时误删。直接删除生成日志中的图片 Blob 时，也会传入当前画布、素材和未删除日志作为保护数据。
+
+## 导出、导入和同步
+
+画布 zip 导出会遍历项目 JSON 中的 `storageKey` 并把对应 Blob 写入 `projects/<projectId>/files/`。如果某个 Blob 已缺失：
+
+- 仍会导出项目 JSON，保留节点、素材或助手元数据。
+- 缺失文件不会被写入 zip。
+- UI 会提示有多少个图片或媒体文件缺失。
+
+导入画布 zip 时，会先把 zip 中的文件重新写回 `image_files` 或 `media_files`，再导入项目 JSON。zip 中缺少清单声明的文件时，会导入元数据并给出缺失提示；之后打开画布时对应图片会显示“图片文件缺失”。
+
+WebDAV 同步会按 domain 清单上传和下载 Blob：
+
+- 本地有 Blob 时，上传到远端文件路径，并在清单记录 `storageKey/path/mimeType/bytes`。
+- 本地缺 Blob 但远端清单里已有文件时，保留远端文件记录并可下载恢复。
+- 本地和远端都缺同一个被 JSON 引用的媒体文件时，同步会报出明确错误，不把数据当作完整同步成功。

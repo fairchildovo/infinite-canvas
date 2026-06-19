@@ -1,11 +1,15 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
+import localforage from "localforage";
 import { Modal, Tag, Timeline } from "antd";
 import { useVersionCheck } from "@/hooks/use-version-check";
 import { useLocalRelease } from "@/hooks/use-local-release";
 import { APP_VERSION } from "@/constant/env";
 import type { PublicRelease } from "@/services/api/releases";
+import { useUserStore } from "@/stores/use-user-store";
+
+const releaseReadStore = localforage.createInstance({ name: "infinite-canvas", storeName: "release_reads" });
 
 function getTagColor(type: string) {
     if (type === "新增") return "green";
@@ -28,6 +32,8 @@ type VersionReleaseModalProps = {
 export function VersionReleaseModal({ className, style, source = "local" }: VersionReleaseModalProps) {
     const upstream = useVersionCheck();
     const local = useLocalRelease();
+    const user = useUserStore((state) => state.user);
+    const isUserReady = useUserStore((state) => state.isReady);
 
     const isLocal = source === "local";
     const open = isLocal ? local.open : upstream.open;
@@ -42,6 +48,30 @@ export function VersionReleaseModal({ className, style, source = "local" }: Vers
         : [];
     const upstreamItems = isLocal ? [] : upstream.releases;
     const latestVersion = isLocal ? APP_VERSION : upstream.latestVersion;
+    const latestLocalVersion = useMemo(() => (isLocal ? localItems.find((release) => release.version && release.version !== "Unreleased")?.version || "" : ""), [isLocal, localItems]);
+    const localReadKey = latestLocalVersion ? `${user?.id || "anonymous"}:${latestLocalVersion}` : "";
+
+    useEffect(() => {
+        if (!isLocal || !isUserReady || !latestLocalVersion || !localReadKey) return;
+        let ignore = false;
+        const checkRead = async () => {
+            const confirmed = await releaseReadStore.getItem<boolean>(localReadKey);
+            if (!ignore && !confirmed) {
+                setOpen(true);
+            }
+        };
+        void checkRead().catch(() => {});
+        return () => {
+            ignore = true;
+        };
+    }, [isLocal, isUserReady, latestLocalVersion, localReadKey, setOpen]);
+
+    const closeModal = async () => {
+        if (isLocal && latestLocalVersion && localReadKey) {
+            await releaseReadStore.setItem(localReadKey, true);
+        }
+        setOpen(false);
+    };
 
     return (
         <>
@@ -57,7 +87,7 @@ export function VersionReleaseModal({ className, style, source = "local" }: Vers
                     {hasNewVersion ? <span className="absolute -right-1.5 -top-1 size-1.5 rounded-full bg-green-500" /> : null}
                 </span>
             </button>
-            <Modal title={isLocal ? "版本更新" : "上游版本更新"} open={open} width={680} centered footer={null} onCancel={() => setOpen(false)}>
+            <Modal title={isLocal ? "版本更新" : "上游版本更新"} open={open} width={680} centered footer={null} onCancel={() => void closeModal()}>
                 <div className="mb-5 grid grid-cols-2 gap-3">
                     <div className="rounded-lg border border-stone-200 p-3 dark:border-stone-800">
                         <div className="text-xs text-stone-500 dark:text-stone-400">当前版本</div>
