@@ -173,8 +173,14 @@ func TestNormalizeSettingsClassifiesCustomAgnesDisplayNameByRawModel(t *testing.
 		Private: model.PrivateSetting{
 			Channels: []model.ModelChannel{
 				{
-					Enabled: true,
-					Models:  []string{"gpt-5.5", "agnes-image-2.1-flash"},
+					Protocol: "openai",
+					Enabled:  true,
+					Models:   []string{"gpt-5.5"},
+				},
+				{
+					Protocol: "agnes",
+					Enabled:  true,
+					Models:   []string{"agnes-image-2.1-flash"},
 					ModelAliases: []model.ModelAlias{
 						{Model: "agnes-image-2.1-flash", DisplayName: "创作A"},
 					},
@@ -193,6 +199,10 @@ func TestNormalizeSettingsClassifiesCustomAgnesDisplayNameByRawModel(t *testing.
 	wantAliases := []model.ModelAlias{{Model: "agnes-image-2.1-flash", DisplayName: "创作A"}}
 	if !reflect.DeepEqual(channel.ModelAliases, wantAliases) {
 		t.Fatalf("model aliases = %#v, want %#v", channel.ModelAliases, wantAliases)
+	}
+	wantProtocols := []model.ModelProtocol{{Model: "gpt-5.5", Protocol: "openai"}, {Model: "创作A", Protocol: "agnes"}}
+	if !reflect.DeepEqual(channel.ModelProtocols, wantProtocols) {
+		t.Fatalf("model protocols = %#v, want %#v", channel.ModelProtocols, wantProtocols)
 	}
 }
 

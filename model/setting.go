@@ -29,6 +29,12 @@ type ModelAlias struct {
 	DisplayName string `json:"displayName"`
 }
 
+// ModelProtocol 公开模型协议配置。
+type ModelProtocol struct {
+	Model    string `json:"model"`
+	Protocol string `json:"protocol"`
+}
+
 // ModelCost 模型算力点配置。
 type ModelCost struct {
 	Model   string `json:"model"`
@@ -37,15 +43,16 @@ type ModelCost struct {
 
 // PublicModelChannelSetting 公开模型渠道配置。
 type PublicModelChannelSetting struct {
-	AvailableModels    []string     `json:"availableModels"`
-	ModelAliases       []ModelAlias `json:"modelAliases"`
-	ModelCosts         []ModelCost  `json:"modelCosts"`
-	DefaultModel       string       `json:"defaultModel"`
-	DefaultImageModel  string       `json:"defaultImageModel"`
-	DefaultVideoModel  string       `json:"defaultVideoModel"`
-	DefaultTextModel   string       `json:"defaultTextModel"`
-	SystemPrompt       string       `json:"systemPrompt"`
-	AllowCustomChannel *bool        `json:"allowCustomChannel"`
+	AvailableModels    []string        `json:"availableModels"`
+	ModelAliases       []ModelAlias    `json:"modelAliases"`
+	ModelProtocols     []ModelProtocol `json:"modelProtocols"`
+	ModelCosts         []ModelCost     `json:"modelCosts"`
+	DefaultModel       string          `json:"defaultModel"`
+	DefaultImageModel  string          `json:"defaultImageModel"`
+	DefaultVideoModel  string          `json:"defaultVideoModel"`
+	DefaultTextModel   string          `json:"defaultTextModel"`
+	SystemPrompt       string          `json:"systemPrompt"`
+	AllowCustomChannel *bool           `json:"allowCustomChannel"`
 }
 
 // PublicSetting 公开配置。

@@ -4,7 +4,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { isAgnesVideoModel } from "@/lib/agnes-model";
+import { isAgnesProtocol, isAgnesVideoModel } from "@/lib/agnes-model";
 import { buildApiUrl, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
@@ -90,7 +90,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const model = requestConfig.model;
     assertVideoConfig(requestConfig, model);
-    if (isAgnesVideoModel(model)) {
+    if (isAgnesProtocol(requestConfig.modelProtocol) || isAgnesVideoModel(model)) {
         return createAgnesVideoTask(requestConfig, model, prompt, references, videoReferences, audioReferences);
     }
     if (isSeedanceVideoConfig({ ...requestConfig, model })) {
@@ -147,10 +147,7 @@ async function createAgnesVideoTask(config: AiConfig, model: string, prompt: str
     };
     if (references.length) {
         payload.image = await resolveAgnesReferenceImageUrl(config, references[0]);
-        payload.mode = "image";
-        payload.extra_body = { image: [payload.image], mode: "image" };
-    } else {
-        payload.mode = "text";
+        payload.mode = "ti2vid";
     }
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), payload, { headers: aiHeaders(config, "application/json") })).data);

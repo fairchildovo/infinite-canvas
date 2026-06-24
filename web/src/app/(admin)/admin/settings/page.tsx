@@ -28,6 +28,7 @@ const emptySettings: AdminSettings = {
     public: {
         modelChannel: {
             availableModels: [],
+            modelProtocols: [],
             modelCosts: [],
             defaultModel: "",
             defaultImageModel: "",
@@ -679,7 +680,7 @@ export default function AdminSettingsPage() {
                             </Col>
                             <Col span={12}>
                                 <Form.Item name="protocol" label="协议">
-                                    <Select options={[{ label: "OpenAI", value: "openai" }]} />
+                                    <Select options={[{ label: "OpenAI", value: "openai" }, { label: "Agnes", value: "agnes" }]} />
                                 </Form.Item>
                             </Col>
                             <Col span={12}>
@@ -922,6 +923,7 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
             ...emptySettings.public.modelChannel,
             ...(setting.modelChannel || {}),
             availableModels: setting.modelChannel?.availableModels || [],
+            modelProtocols: setting.modelChannel?.modelProtocols || [],
             modelCosts: normalizeModelCosts(setting.modelChannel?.modelCosts || []),
         },
         auth: {
@@ -959,7 +961,7 @@ function normalizePrivateSetting(setting: Partial<AdminSettings["private"]> = {}
 function normalizeChannel(item: Partial<AdminModelChannel> = {}): AdminModelChannel {
     const models = uniqueModels(item.models || []);
     return {
-        protocol: "openai",
+        protocol: item.protocol === "agnes" ? "agnes" : "openai",
         name: item.name || "",
         baseUrl: item.baseUrl || "",
         apiKey: item.apiKey || "",

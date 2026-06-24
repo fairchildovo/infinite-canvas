@@ -15,3 +15,7 @@ export function isAgnesVideoModel(model: string) {
 export function isAgnesModel(model: string) {
     return isAgnesImageModel(model) || isAgnesVideoModel(model);
 }
+
+export function isAgnesProtocol(protocol?: string) {
+    return protocol?.trim().toLowerCase() === "agnes";
+}

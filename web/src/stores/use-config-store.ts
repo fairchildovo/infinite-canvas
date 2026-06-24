@@ -46,6 +46,7 @@ export type AiConfig = {
     size: string;
     count: string;
     canvasImageCount: string;
+    modelProtocol?: string;
 };
 
 export type WebdavSyncConfig = {
@@ -313,6 +314,12 @@ export function resolveRawModelName(value: string, aliases?: AdminPublicSettings
     return aliases?.find((item) => item.displayName.trim() === model)?.model.trim() || model;
 }
 
+export function resolveModelProtocol(value: string, modelChannel?: AdminPublicSettings["modelChannel"]) {
+    const model = modelOptionName(value || "").trim();
+    const rawModel = resolveRawModelName(model, modelChannel?.modelAliases);
+    return modelChannel?.modelProtocols?.find((item) => item.model.trim() === model || item.model.trim() === rawModel)?.protocol || "openai";
+}
+
 export function modelOptionLabel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     if (!decoded) return value;
@@ -345,10 +352,11 @@ export function resolveModelChannel(config: AiConfig, value: string) {
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
     const channel = resolveModelChannel(config, value);
-    const aliases = config.channelMode === "remote" ? useConfigStore.getState().publicSettings?.modelChannel.modelAliases : undefined;
+    const modelChannel = config.channelMode === "remote" ? useConfigStore.getState().publicSettings?.modelChannel : undefined;
     return {
         ...config,
-        model: resolveRawModelName(value || config.model, aliases),
+        model: resolveRawModelName(value || config.model, modelChannel?.modelAliases),
+        modelProtocol: resolveModelProtocol(value || config.model, modelChannel),
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
     };

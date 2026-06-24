@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
-import { isAgnesImageModel } from "@/lib/agnes-model";
+import { isAgnesImageModel, isAgnesProtocol } from "@/lib/agnes-model";
 import type { ReferenceImage } from "@/types/image";
 
 export type ChatCompletionMessage = {
@@ -108,7 +108,7 @@ function normalizeQuality(quality: string) {
 }
 
 /** Map "quality + ratio" to an explicit pixel dimension like "3840x2160". */
-function resolveSize(quality: string | undefined, ratio: string, model = ""): string {
+function resolveSize(quality: string | undefined, ratio: string, isAgnesImage = false): string {
     const parsedRatio = parseImageRatio(ratio);
     const basePixels = quality ? QUALITY_BASE[quality] : undefined;
     const isLandscape = parsedRatio.width >= parsedRatio.height;
@@ -128,7 +128,7 @@ function resolveSize(quality: string | undefined, ratio: string, model = ""): st
 
     const width = isLandscape ? longSide : shortSide;
     const height = isLandscape ? shortSide : longSide;
-    validateImageSize(width, height, model);
+    validateImageSize(width, height, isAgnesImage);
     return `${width}x${height}`;
 }
 
@@ -148,9 +148,9 @@ function parseImageDimensions(value: string) {
     return { width: Number(match[1]), height: Number(match[2]) };
 }
 
-function validateImageSize(width: number, height: number, model = "") {
-    const maxEdge = isAgnesImageModel(model) ? AGNES_IMAGE_MAX_EDGE : IMAGE_MAX_EDGE;
-    const maxPixels = isAgnesImageModel(model) ? AGNES_IMAGE_MAX_PIXELS : IMAGE_MAX_PIXELS;
+function validateImageSize(width: number, height: number, isAgnesImage = false) {
+    const maxEdge = isAgnesImage ? AGNES_IMAGE_MAX_EDGE : IMAGE_MAX_EDGE;
+    const maxPixels = isAgnesImage ? AGNES_IMAGE_MAX_PIXELS : IMAGE_MAX_PIXELS;
     if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) throw new Error("图像尺寸必须是正整数，例如 1024x1024");
     if (width % IMAGE_SIZE_STEP !== 0 || height % IMAGE_SIZE_STEP !== 0) throw new Error("图像尺寸的宽高必须是 16 的倍数，请调整尺寸");
     if (Math.max(width, height) > maxEdge) throw new Error(`图像尺寸最长边不能超过 ${maxEdge}px，请调整尺寸`);
@@ -159,15 +159,19 @@ function validateImageSize(width: number, height: number, model = "") {
     if (pixels < IMAGE_MIN_PIXELS || pixels > maxPixels) throw new Error(`图像总像素需在 655360 到 ${maxPixels} 之间，请调整尺寸`);
 }
 
-function resolveRequestSize(quality: string | undefined, size: string, model = "") {
+function isAgnesImageConfig(config: AiConfig) {
+    return isAgnesProtocol(config.modelProtocol) || isAgnesImageModel(config.model);
+}
+
+function resolveRequestSize(quality: string | undefined, size: string, isAgnesImage = false) {
     const value = size.trim();
     if (!value || value.toLowerCase() === "auto") return undefined;
     const dimensions = parseImageDimensions(value);
     if (dimensions) {
-        validateImageSize(dimensions.width, dimensions.height, model);
+        validateImageSize(dimensions.width, dimensions.height, isAgnesImage);
         return `${dimensions.width}x${dimensions.height}`;
     }
-    if (value.includes(":")) return resolveSize(quality, value, model);
+    if (value.includes(":")) return resolveSize(quality, value, isAgnesImage);
     throw new Error("图像尺寸格式不支持，请使用 auto、9:16 或 1024x1024");
 }
 
@@ -359,9 +363,9 @@ export async function requestGeneration(config: AiConfig, prompt: string) {
     config = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const quality = normalizeQuality(config.quality);
-    const requestSize = resolveRequestSize(quality, config.size, config.model);
+    const requestSize = resolveRequestSize(quality, config.size, isAgnesImageConfig(config));
     try {
-        if (isAgnesImageModel(config.model)) {
+        if (isAgnesImageConfig(config)) {
             const response = await axios.post<ImageApiResponse>(
                 aiApiUrl(config, "/images/generations"),
                 {
@@ -404,9 +408,9 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     config = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const quality = normalizeQuality(config.quality);
-    const requestSize = resolveRequestSize(quality, config.size, config.model);
+    const requestSize = resolveRequestSize(quality, config.size, isAgnesImageConfig(config));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
-    if (isAgnesImageModel(config.model)) {
+    if (isAgnesImageConfig(config)) {
         if (mask) throw new Error("Agnes 图片模型暂不支持蒙版编辑，请移除蒙版或切换到支持 /images/edits 的模型");
         const images = await Promise.all(references.map((image) => imageToDataUrl(image)));
         try {

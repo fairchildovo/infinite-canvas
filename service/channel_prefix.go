@@ -60,6 +60,36 @@ func BuildPublicModelList(channels []model.ModelChannel) []string {
 	return uniqueModelNames(models)
 }
 
+func BuildPublicModelProtocols(channels []model.ModelChannel) []model.ModelProtocol {
+	result := []model.ModelProtocol{}
+	seen := map[string]bool{}
+	for _, channel := range channels {
+		if !channel.Enabled {
+			continue
+		}
+		protocol := strings.TrimSpace(channel.Protocol)
+		if protocol == "" {
+			protocol = "openai"
+		}
+		aliases := channelAliasMap(channel)
+		for _, m := range channel.Models {
+			rawModel := strings.TrimSpace(m)
+			if rawModel == "" {
+				continue
+			}
+			publicModel := rawModel
+			if displayName := aliases[rawModel]; displayName != "" {
+				publicModel = displayName
+			}
+			if !seen[publicModel] {
+				result = append(result, model.ModelProtocol{Model: publicModel, Protocol: protocol})
+				seen[publicModel] = true
+			}
+		}
+	}
+	return result
+}
+
 // BuildDisplayModelList 保留语义别名，供调用方明确需要公开显示名列表时使用。
 func BuildDisplayModelList(channels []model.ModelChannel) []string {
 	return BuildPublicModelList(channels)

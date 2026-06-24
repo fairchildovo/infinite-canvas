@@ -4,8 +4,8 @@ import { type ReactNode, useState } from "react";
 import { ConfigProvider, Switch } from "antd";
 
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { isAgnesImageModel } from "@/lib/agnes-model";
-import { resolveRawModelName, useConfigStore, type AiConfig } from "@/stores/use-config-store";
+import { isAgnesImageModel, isAgnesProtocol } from "@/lib/agnes-model";
+import { resolveModelProtocol, resolveRawModelName, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 
 const qualityOptions = [
     { value: "auto", label: "自动" },
@@ -43,13 +43,13 @@ type ImageSettingsPanelProps = {
 
 export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
-    const modelAliases = useConfigStore((state) => state.publicSettings?.modelChannel.modelAliases);
+    const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel);
     const quality = config.quality || "auto";
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
     const selectedModel = config.model || config.imageModel;
-    const imageModel = resolveRawModelName(selectedModel, config.channelMode === "remote" ? modelAliases : undefined);
-    const isAgnesImage = isAgnesImageModel(imageModel);
+    const imageModel = resolveRawModelName(selectedModel, config.channelMode === "remote" ? modelChannel?.modelAliases : undefined);
+    const isAgnesImage = isAgnesProtocol(config.channelMode === "remote" ? resolveModelProtocol(selectedModel, modelChannel) : config.modelProtocol) || isAgnesImageModel(imageModel);
     const limitTo1k = isOneKModel(selectedModel) || isOneKModel(imageModel);
     const effectiveSnapDimensionToStep = isAgnesImage || snapDimensionToStep;
     const selectedAspect = aspectOptions.find((item) => (item.size || item.value) === activeSize || item.value === activeSize);

@@ -56,7 +56,7 @@ func AdminTestChannelModel(index *int, channel model.ModelChannel, modelName str
 	if err != nil {
 		return "", err
 	}
-	if isArkAgentPlanChannel(resolved) || isSeedanceModelName(modelName) {
+	if isArkAgentPlanChannel(resolved) || isSeedanceModelName(modelName) || isAgnesChannel(resolved) {
 		return testArkSeedanceChannelModel(resolved, modelName)
 	}
 	return testAdminChannelModel(resolved, modelName)
@@ -98,8 +98,10 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	if len(enabledModels) > 0 {
 		setting.ModelChannel.AvailableModels = enabledModels
 		setting.ModelChannel.ModelAliases = enabledChannelAliases(channels)
+		setting.ModelChannel.ModelProtocols = BuildPublicModelProtocols(channels)
 	} else {
 		setting.ModelChannel.AvailableModels = uniqueModelNames(setting.ModelChannel.AvailableModels)
+		setting.ModelChannel.ModelProtocols = nil
 	}
 	setting.ModelChannel.DefaultTextModel = repairDefaultModel(setting.ModelChannel.DefaultTextModel, setting.ModelChannel.AvailableModels, setting.ModelChannel.ModelAliases, isTextModelName)
 	setting.ModelChannel.DefaultImageModel = repairDefaultModel(setting.ModelChannel.DefaultImageModel, setting.ModelChannel.AvailableModels, setting.ModelChannel.ModelAliases, isImageModelName)
@@ -249,6 +251,10 @@ func normalizeModelChannelBaseURL(baseURL string) string {
 func isArkAgentPlanChannel(channel model.ModelChannel) bool {
 	baseURL := strings.ToLower(normalizeModelChannelBaseURL(channel.BaseURL))
 	return strings.HasSuffix(baseURL, "/api/plan/v3")
+}
+
+func isAgnesChannel(channel model.ModelChannel) bool {
+	return strings.EqualFold(strings.TrimSpace(channel.Protocol), "agnes")
 }
 
 func isSeedanceModelName(modelName string) bool {
