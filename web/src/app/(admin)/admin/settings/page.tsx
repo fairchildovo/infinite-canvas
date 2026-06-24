@@ -412,7 +412,7 @@ export default function AdminSettingsPage() {
                 </Card>
                 <Card variant="borderless" title="维护 / 部署">
                     <Flex justify="space-between" align="center" gap={16} wrap>
-                        <Typography.Text type="secondary">一键更新会拉取 `ghcr.io/fairchildovo/infinite-canvas` 镜像并重建 Docker Compose 服务。</Typography.Text>
+                        <Typography.Text type="secondary">一键更新会拉取 `fairchildovo/infinite-canvas` 镜像并重建 Docker Compose 服务。</Typography.Text>
                         <Button danger icon={<SyncOutlined />} loading={isUpdatingSystem} onClick={triggerSystemUpdate}>
                             一键更新
                         </Button>

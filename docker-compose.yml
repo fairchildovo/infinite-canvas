@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/fairchildovo/infinite-canvas:latest
+    image: ghcr.nju.edu.cn/fairchildovo/infinite-canvas:latest
     container_name: infinite-canvas
     env_file:
       - .env

@@ -41,8 +41,8 @@ func AdminTriggerSystemUpdate() (SystemUpdateResult, error) {
 	if err != nil {
 		return SystemUpdateResult{Stage: "precheck", Status: "unsupported", Log: "无法读取 compose 文件"}, safeMessageError{message: "无法读取 SYSTEM_UPDATE_COMPOSE_FILE 指向的 docker compose 文件"}
 	}
-	if !strings.Contains(string(composeContent), "ghcr.io/fairchildovo/infinite-canvas") {
-		return SystemUpdateResult{Stage: "precheck", Status: "unsupported", Log: "compose 文件未指向 fairchildovo 镜像"}, safeMessageError{message: "docker compose 文件未指向 ghcr.io/fairchildovo/infinite-canvas"}
+	if !strings.Contains(string(composeContent), "fairchildovo/infinite-canvas") {
+		return SystemUpdateResult{Stage: "precheck", Status: "unsupported", Log: "compose 文件未指向 fairchildovo 镜像"}, safeMessageError{message: "docker compose 文件未指向 fairchildovo/infinite-canvas 镜像"}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
