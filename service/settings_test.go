@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -273,5 +274,180 @@ func TestNormalizePrivateSettingConvertsLegacyPrefixToAliases(t *testing.T) {
 	}
 	if got := settings.Public.ModelChannel.AvailableModels; !reflect.DeepEqual(got, []string{"ark-doubao-seedance-2.0-pro"}) {
 		t.Fatalf("available models = %#v, want legacy prefixed public model", got)
+	}
+}
+
+func TestModelCostMatchesAfterAliasRename(t *testing.T) {
+	// ModelCosts 存 displayName，请求用另一个也 resolve 到同一 rawModel 的名称。
+	// ponytail: 如果旧 displayName 已从 alias 列表移除（即 alias 改名），仅凭当前 alias 无法 bridge；
+	// 此时需要 Cost 存 rawModel（修改 3 保障）才能命中。
+	aliases := []model.ModelAlias{
+		{Model: "agnes-image-2.1-flash", DisplayName: "新名称"},
+	}
+	// 两者都 resolve 到同一 rawModel → 命中
+	if !modelCostMatches("新名称", "agnes-image-2.1-flash", aliases) {
+		t.Fatal("expected match: displayName vs rawModel, same rawModel")
+	}
+	// 旧名称不在 alias 列表中，无法 bridge — 这是改名后存旧 displayName 的真实边界
+	if modelCostMatches("旧名称", "新名称", aliases) {
+		t.Skip("skipped: 旧名称已从 alias 移除，无法通过当前 alias bridge；修改 3 存 rawModel 后可覆盖此路径")
+	}
+}
+
+func TestModelCostMatchesBothResolveToSameRaw(t *testing.T) {
+	// 两个不同 displayName 都 resolve 到同一 rawModel → 应匹配
+	// 这是 fix 的核心场景：costModel 和 requestModel 都是 alias，resolve 后相等
+	aliases := []model.ModelAlias{
+		{Model: "gpt-5.5", DisplayName: "GPT-5"},
+		{Model: "gpt-5.5", DisplayName: "GPT-5 Turbo"},
+	}
+	if !modelCostMatches("GPT-5", "GPT-5 Turbo", aliases) {
+		t.Fatal("expected match: both resolve to same rawModel gpt-5.5")
+	}
+}
+
+func TestModelCostMatchesRawModel(t *testing.T) {
+	// ModelCosts 存 rawModel，请求用 displayName
+	aliases := []model.ModelAlias{
+		{Model: "agnes-image-2.1-flash", DisplayName: "我的图像模型"},
+	}
+	if !modelCostMatches("agnes-image-2.1-flash", "我的图像模型", aliases) {
+		t.Fatal("expected match: costModel=rawModel, requestModel=displayName")
+	}
+	if !modelCostMatches("我的图像模型", "agnes-image-2.1-flash", aliases) {
+		t.Fatal("expected match: costModel=displayName, requestModel=rawModel")
+	}
+}
+
+func TestResolveCreditLogModels(t *testing.T) {
+	previousConfig := config.Cfg
+	t.Cleanup(func() { config.Cfg = previousConfig })
+	config.Cfg = config.Config{StorageDriver: "sqlite", DatabaseDSN: "file:resolve-credit-log-test?mode=memory&cache=shared"}
+	_, err := repository.SaveSettings(model.Settings{
+		Private: model.PrivateSetting{
+			Channels: []model.ModelChannel{{
+				Enabled: true,
+				Models:  []string{"agnes-image-2.1-flash"},
+				ModelAliases: []model.ModelAlias{
+					{Model: "agnes-image-2.1-flash", DisplayName: "新名称"},
+				},
+			}},
+		},
+	}, time.Now().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	logs := []model.CreditLog{
+		{
+			Type:   model.CreditLogTypeAIConsume,
+			Remark: "调用模型 旧名称",
+			Extra:  `{"model":"旧名称","rawModel":"agnes-image-2.1-flash","path":"/v1/chat/completions"}`,
+		},
+		{
+			Type:   model.CreditLogTypeAIRefund,
+			Remark: "模型调用失败返还 旧名称",
+			Extra:  `{"model":"旧名称","rawModel":"agnes-image-2.1-flash","path":"/v1/chat/completions"}`,
+		},
+		{
+			Type:   model.CreditLogTypeAdminAdjust,
+			Remark: "管理员调整",
+			Extra:  `{}`,
+		},
+	}
+
+	resolveCreditLogModels(logs)
+
+	if logs[0].Remark != "调用模型 新名称" {
+		t.Fatalf("consume remark = %q, want 新名称", logs[0].Remark)
+	}
+	var extra0 map[string]string
+	_ = json.Unmarshal([]byte(logs[0].Extra), &extra0)
+	if extra0["model"] != "新名称" {
+		t.Fatalf("consume extra model = %q, want 新名称", extra0["model"])
+	}
+
+	if logs[1].Remark != "模型调用失败返还 新名称" {
+		t.Fatalf("refund remark = %q, want 新名称", logs[1].Remark)
+	}
+
+	// admin_adjust 不应被修改
+	if logs[2].Remark != "管理员调整" {
+		t.Fatalf("admin adjust remark = %q, want 管理员调整", logs[2].Remark)
+	}
+}
+
+func TestPreserveAliasHistory(t *testing.T) {
+	settings := &model.Settings{
+		Public: model.PublicSetting{
+			ModelChannel: model.PublicModelChannelSetting{
+				ModelAliases: []model.ModelAlias{
+					{Model: "agnes-image-2.1-flash", DisplayName: "新名称"},
+				},
+			},
+		},
+	}
+	saved := model.Settings{
+		Public: model.PublicSetting{
+			ModelChannel: model.PublicModelChannelSetting{
+				ModelAliases: []model.ModelAlias{
+					{Model: "agnes-image-2.1-flash", DisplayName: "旧名称"},
+				},
+			},
+		},
+	}
+	preserveAliasHistory(settings, saved)
+	if len(settings.Public.ModelChannel.ModelAliasHistory) != 1 {
+		t.Fatalf("history len = %d, want 1", len(settings.Public.ModelChannel.ModelAliasHistory))
+	}
+	h := settings.Public.ModelChannel.ModelAliasHistory[0]
+	if h.Model != "agnes-image-2.1-flash" || h.DisplayName != "旧名称" {
+		t.Fatalf("history entry = %v, want {agnes-image-2.1-flash, 旧名称}", h)
+	}
+}
+
+func TestResolveCreditLogModelsWithHistory(t *testing.T) {
+	previousConfig := config.Cfg
+	t.Cleanup(func() { config.Cfg = previousConfig })
+	config.Cfg = config.Config{StorageDriver: "sqlite", DatabaseDSN: "file:resolve-history-test?mode=memory&cache=shared"}
+	_, err := repository.SaveSettings(model.Settings{
+		Private: model.PrivateSetting{
+			Channels: []model.ModelChannel{{
+				Enabled: true,
+				Models:  []string{"agnes-image-2.1-flash"},
+				ModelAliases: []model.ModelAlias{
+					{Model: "agnes-image-2.1-flash", DisplayName: "新名称"},
+				},
+			}},
+		},
+		Public: model.PublicSetting{
+			ModelChannel: model.PublicModelChannelSetting{
+				ModelAliasHistory: []model.ModelAlias{
+					{Model: "agnes-image-2.1-flash", DisplayName: "旧名称"},
+				},
+			},
+		},
+	}, time.Now().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	logs := []model.CreditLog{
+		{
+			Type:   model.CreditLogTypeAIConsume,
+			Remark: "调用模型 旧名称",
+			Extra:  `{"model":"旧名称","path":"/v1/chat/completions"}`,
+		},
+	}
+
+	resolveCreditLogModels(logs)
+
+	if logs[0].Remark != "调用模型 新名称" {
+		t.Fatalf("remark = %q, want 新名称", logs[0].Remark)
+	}
+	var extra map[string]string
+	_ = json.Unmarshal([]byte(logs[0].Extra), &extra)
+	if extra["model"] != "新名称" {
+		t.Fatalf("extra model = %q, want 新名称", extra["model"])
 	}
 }

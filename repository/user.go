@@ -199,3 +199,17 @@ func findUser(db *gorm.DB, query string, args ...any) (model.User, bool, error) 
 	}
 	return user, err == nil, err
 }
+
+// GetFirstAdmin 获取第一个管理员用户。
+func GetFirstAdmin() (model.User, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return model.User{}, false, err
+	}
+	var user model.User
+	err = db.Where("role = ?", model.UserRoleAdmin).Order("created_at asc").First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return model.User{}, false, nil
+	}
+	return user, err == nil, err
+}

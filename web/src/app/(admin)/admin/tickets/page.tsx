@@ -7,6 +7,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import type { Ticket, TicketStatus, TicketType } from "@/services/api/tickets";
+import { updateTicketStatus } from "@/services/api/tickets";
+import { fetchAdminUsers, type AdminUser } from "@/services/api/admin";
+import { useUserStore } from "@/stores/use-user-store";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAdminTickets } from "./use-admin-tickets";
 
 const statusOptions = [
@@ -42,6 +46,19 @@ const typeLabels: Record<TicketType, string> = {
 export default function AdminTicketsPage() {
     const router = useRouter();
     const { tickets, keyword, status, ticketType, page, pageSize, total, isLoading, searchTickets, changeStatus, changeType, changePage, changePageSize, resetFilters, refreshTickets } = useAdminTickets();
+    const token = useUserStore((state) => state.token);
+    const queryClient = useQueryClient();
+    const [userMap, setUserMap] = useState<Map<string, AdminUser>>(new Map());
+    const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!token) return;
+        fetchAdminUsers(token, { pageSize: 500 }).then((res) => {
+            const map = new Map<string, AdminUser>();
+            res.items.forEach((u) => map.set(u.id, u));
+            setUserMap(map);
+        }).catch(() => {});
+    }, [token]);
     const [keywordText, setKeywordText] = useState(keyword);
 
     useEffect(() => setKeywordText(keyword), [keyword]);
@@ -62,6 +79,10 @@ export default function AdminTicketsPage() {
             dataIndex: "userId",
             width: 140,
             ellipsis: true,
+            render: (_, item) => {
+                const u = userMap.get(item.userId);
+                return <Typography.Text>{u?.displayName || u?.username || item.userId.slice(0, 8)}</Typography.Text>;
+            },
         },
         {
             title: "类型",
@@ -72,10 +93,33 @@ export default function AdminTicketsPage() {
         {
             title: "状态",
             dataIndex: "status",
-            width: 100,
+            width: 110,
             render: (_, item) => {
                 const s = statusLabels[item.status];
-                return <Tag color={s?.color}>{s?.text || item.status}</Tag>;
+                return (
+                    <Select
+                        size="small"
+                        variant="borderless"
+                        value={item.status}
+                        loading={updatingId === item.id}
+                        style={{ minWidth: 80 }}
+                        options={statusOptions.filter((o) => o.value !== "").map((o) => {
+                            const sl = statusLabels[o.value as TicketStatus];
+                            return { label: <Tag color={sl?.color}>{sl?.text}</Tag>, value: o.value };
+                        })}
+                        onChange={async (v) => {
+                            setUpdatingId(item.id);
+                            try {
+                                await updateTicketStatus(token, item.id, v as TicketStatus);
+                                await queryClient.invalidateQueries({ queryKey: ["admin", "tickets"] });
+                            } catch {
+                                // ignore
+                            } finally {
+                                setUpdatingId(null);
+                            }
+                        }}
+                    />
+                );
             },
         },
         {
@@ -103,6 +147,14 @@ export default function AdminTicketsPage() {
                 <Typography.Text type="secondary">
                     {item.createdAt ? dayjs(item.createdAt).format("YYYY-MM-DD HH:mm") : "-"}
                 </Typography.Text>
+            ),
+        },
+        {
+            title: "操作",
+            key: "actions",
+            width: 80,
+            render: (_, item) => (
+                <Button type="link" size="small" onClick={() => router.push(/admin/tickets/)}>查看</Button>
             ),
         },
     ];

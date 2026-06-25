@@ -7,6 +7,8 @@ import dayjs from "dayjs";
 import { useEffect, useState } from "react";
 
 import type { AdminCreditLog } from "@/services/api/admin";
+import { fetchAdminUsers, type AdminUser } from "@/services/api/admin";
+import { useUserStore } from "@/stores/use-user-store";
 import { useAdminCreditLogs } from "./use-admin-credit-logs";
 
 type CreditLogFormValues = Partial<AdminCreditLog>;
@@ -19,6 +21,17 @@ const creditLogTypeLabels: Record<string, string> = {
 
 export default function AdminCreditLogsPage() {
     const { logs, keyword, page, pageSize, total, isLoading, searchLogs, changePage, changePageSize, resetFilters, refreshLogs, saveLog: saveAdminLog, deleteLog } = useAdminCreditLogs();
+    const token = useUserStore((state) => state.token);
+    const [userMap, setUserMap] = useState<Map<string, AdminUser>>(new Map());
+
+    useEffect(() => {
+        if (!token) return;
+        fetchAdminUsers(token, { pageSize: 500 }).then((res) => {
+            const map = new Map<string, AdminUser>();
+            res.items.forEach((u) => map.set(u.id, u));
+            setUserMap(map);
+        }).catch(() => {});
+    }, [token]);
     const [form] = Form.useForm<CreditLogFormValues>();
     const [keywordText, setKeywordText] = useState(keyword);
     const [editingLog, setEditingLog] = useState<Partial<AdminCreditLog> | null>(null);
@@ -37,6 +50,15 @@ export default function AdminCreditLogsPage() {
     };
 
     const columns: ProColumns<AdminCreditLog>[] = [
+        {
+            title: "用户名",
+            dataIndex: "userId",
+            width: 140,
+            render: (_, item) => {
+                const u = userMap.get(item.userId);
+                return <Typography.Text>{u?.displayName || u?.username || "-"}</Typography.Text>;
+            },
+        },
         {
             title: "用户 ID",
             dataIndex: "userId",

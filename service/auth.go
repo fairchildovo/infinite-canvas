@@ -334,7 +334,7 @@ func AdjustUserCredits(id string, credits int) (model.User, error) {
 	return user, err
 }
 
-func ConsumeUserCredits(userID string, modelName string, credits int, path string) error {
+func ConsumeUserCredits(userID string, modelName string, rawModel string, credits int, path string) error {
 	if credits <= 0 {
 		return nil
 	}
@@ -345,7 +345,7 @@ func ConsumeUserCredits(userID string, modelName string, credits int, path strin
 	if !ok {
 		return safeMessageError{message: "算力点不足"}
 	}
-	extra, _ := json.Marshal(map[string]string{"model": modelName, "path": path})
+	extra, _ := json.Marshal(map[string]string{"model": modelName, "rawModel": rawModel, "path": path})
 	_, err = repository.SaveCreditLog(model.CreditLog{
 		ID:        newID("credit"),
 		UserID:    userID,
@@ -359,7 +359,7 @@ func ConsumeUserCredits(userID string, modelName string, credits int, path strin
 	return err
 }
 
-func RefundUserCredits(userID string, modelName string, credits int, path string) error {
+func RefundUserCredits(userID string, modelName string, rawModel string, credits int, path string) error {
 	if credits <= 0 {
 		return nil
 	}
@@ -370,7 +370,7 @@ func RefundUserCredits(userID string, modelName string, credits int, path string
 	if !ok {
 		return safeMessageError{message: "用户不存在"}
 	}
-	extra, _ := json.Marshal(map[string]string{"model": modelName, "path": path})
+	extra, _ := json.Marshal(map[string]string{"model": modelName, "rawModel": rawModel, "path": path})
 	_, err = repository.SaveCreditLog(model.CreditLog{
 		ID:        newID("credit"),
 		UserID:    userID,
@@ -389,6 +389,7 @@ func ListCreditLogs(q model.Query) (model.CreditLogList, error) {
 	if err != nil {
 		return model.CreditLogList{}, err
 	}
+	resolveCreditLogModels(logs)
 	return model.CreditLogList{Items: logs, Total: int(total)}, nil
 }
 
@@ -397,9 +398,60 @@ func ListUserCreditLogs(userID string, q model.Query) (model.CreditLogList, erro
 	if err != nil {
 		return model.CreditLogList{}, err
 	}
+	resolveCreditLogModels(logs)
 	return model.CreditLogList{Items: logs, Total: int(total)}, nil
 }
 
+// resolveCreditLogModels queries时把日志中的模型名称 resolve 为最新 displayName。
+// 只处理 ai_consume / ai_refund 类型；只改内存返回值，不写回 DB。
+func resolveCreditLogModels(logs []model.CreditLog) {
+	normalized := normalizeSettings(func() model.Settings { s, _ := repository.GetSettings(); return s }())
+	aliases := normalized.Public.ModelChannel.ModelAliases
+	aliasHistory := normalized.Public.ModelChannel.ModelAliasHistory
+	// rawModel → 最新 displayName
+	rawToDisplay := map[string]string{}
+	for _, a := range aliases {
+		rawToDisplay[strings.TrimSpace(a.Model)] = strings.TrimSpace(a.DisplayName)
+	}
+	// history: 旧 displayName → rawModel（只补充当前 alias 里查不到的）
+	historyLookup := map[string]string{}
+	for _, h := range aliasHistory {
+		k := strings.TrimSpace(h.DisplayName)
+		if _, exists := rawToDisplay[strings.TrimSpace(h.Model)]; exists && k != "" {
+			historyLookup[k] = strings.TrimSpace(h.Model)
+		}
+	}
+	for i := range logs {
+		log := &logs[i]
+		if log.Type != model.CreditLogTypeAIConsume && log.Type != model.CreditLogTypeAIRefund {
+			continue
+		}
+		var extra map[string]string
+		if json.Unmarshal([]byte(log.Extra), &extra) != nil {
+			continue
+		}
+		rawModel := strings.TrimSpace(extra["rawModel"])
+		oldModel := strings.TrimSpace(extra["model"])
+		if rawModel == "" {
+			rawModel = resolveRawPublicModelName(oldModel, aliases)
+			// 当前 alias 查不到 → fallback history
+			if rawModel == oldModel {
+				if r, ok := historyLookup[oldModel]; ok {
+					rawModel = r
+				}
+			}
+		}
+		newDisplay, ok := rawToDisplay[rawModel]
+		if !ok || newDisplay == oldModel {
+			continue
+		}
+		log.Remark = strings.Replace(log.Remark, oldModel, newDisplay, 1)
+		extra["model"] = newDisplay
+		if updated, err := json.Marshal(extra); err == nil {
+			log.Extra = string(updated)
+		}
+	}
+}
 func SaveCreditLog(log model.CreditLog) (model.CreditLog, error) {
 	if log.ID == "" {
 		log.ID = newID("credit")

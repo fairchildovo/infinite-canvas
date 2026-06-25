@@ -63,6 +63,10 @@ func CreateTicket(userID string, ticketType model.TicketType, title string, cont
 		CreatedAt: ts,
 		UpdatedAt: ts,
 	}
+	// 自动指派给第一个管理员。
+	if admin, ok, _ := repository.GetFirstAdmin(); ok {
+		ticket.AssignedTo = admin.ID
+	}
 	ticket, err := repository.SaveTicket(ticket)
 	if err != nil {
 		return model.Ticket{}, err

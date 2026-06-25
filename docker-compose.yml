@@ -4,10 +4,6 @@ services:
     container_name: infinite-canvas
     env_file:
       - .env
-    environment:
-      HTTP_PROXY: http://host.docker.internal:7890
-      HTTPS_PROXY: http://host.docker.internal:7890
-      NO_PROXY: 127.0.0.1,localhost
     volumes:
       - ./data:/app/data
       # 管理后台一键更新需要访问宿主机 Docker 和当前 compose 目录。

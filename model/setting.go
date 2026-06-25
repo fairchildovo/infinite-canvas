@@ -47,6 +47,7 @@ type PublicModelChannelSetting struct {
 	ModelAliases       []ModelAlias    `json:"modelAliases"`
 	ModelProtocols     []ModelProtocol `json:"modelProtocols"`
 	ModelCosts         []ModelCost     `json:"modelCosts"`
+	ModelAliasHistory  []ModelAlias    `json:"modelAliasHistory"`
 	DefaultModel       string          `json:"defaultModel"`
 	DefaultImageModel  string          `json:"defaultImageModel"`
 	DefaultVideoModel  string          `json:"defaultVideoModel"`

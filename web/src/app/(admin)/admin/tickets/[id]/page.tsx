@@ -40,10 +40,16 @@ export default function AdminTicketDetailPage() {
     const { detail, isLoading, replying, updating, submitReply, changeStatus, assignTo, refresh } = useAdminTicketDetail(id);
     const [replyContent, setReplyContent] = useState("");
     const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+    const [userMap, setUserMap] = useState<Map<string, AdminUser>>(new Map());
 
     useEffect(() => {
         if (!token) return;
-        fetchAdminUsers(token, { role: "admin", pageSize: 100 } as Parameters<typeof fetchAdminUsers>[1]).then((res) => setAdminUsers(res.items.filter((u) => u.role === "admin"))).catch(() => {});
+        fetchAdminUsers(token, { pageSize: 500 }).then((res) => {
+            setAdminUsers(res.items.filter((u) => u.role === "admin"));
+            const map = new Map<string, AdminUser>();
+            res.items.forEach((u) => map.set(u.id, u));
+            setUserMap(map);
+        }).catch(() => {});
     }, [token]);
 
     const handleSend = async () => {
@@ -83,7 +89,7 @@ export default function AdminTicketDetailPage() {
                         <Tag color={statusInfo?.color}>{statusInfo?.text || ticket.status}</Tag>
                     </Flex>
                     <Typography.Text type="secondary">
-                        提交者：{ticket.userId} | 创建于 {dayjs(ticket.createdAt).format("YYYY-MM-DD HH:mm")}
+                        提交者：{userMap.get(ticket.userId)?.displayName || userMap.get(ticket.userId)?.username || ticket.userId.slice(0, 8)} | 创建于 {dayjs(ticket.createdAt).format("YYYY-MM-DD HH:mm")}
                     </Typography.Text>
                     <Flex gap={16} wrap="wrap" align="center">
                         <Flex align="center" gap={8}>

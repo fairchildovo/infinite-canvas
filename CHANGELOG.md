@@ -1,6 +1,16 @@
-﻿# CHANGELOG
+# CHANGELOG
 
 ## Unreleased
+
+## v1.0.6 - 2026-06-25
+
++ [修复] 修复模型别名改名后算力点定价匹配失败的问题，`modelCostMatches` 统一 resolve 到 rawModel 再比较。
++ [修复] 修复别名改名后旧算力点日志仍显示旧名称的问题，查询时自动 resolve 为最新 displayName。
++ [新增] 新增 `ModelAliasHistory` 机制，改名时自动记录旧映射，支持旧日志跨改名 resolve。
++ [新增] `ConsumeUserCredits` / `RefundUserCredits` 写入时额外存储 `rawModel` 字段，保障后续 resolve 准确性。
++ [新增] 管理后台工单自动指派给第一个管理员。
++ [优化] 算力点日志页面和工单管理页面交互优化。
++ [调整] 移除 docker-compose 中硬编码的代理环境变量。
 
 ## v1.0.5 - 2026-06-25
 

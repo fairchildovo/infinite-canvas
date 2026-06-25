@@ -36,11 +36,32 @@ func SaveSettings(settings model.Settings) (model.Settings, error) {
 	settings = normalizeSettings(settings)
 	keepPrivateAPIKeys(&settings, normalizeSettings(saved))
 	keepPrivateAuthSecrets(&settings, normalizeSettings(saved))
+	preserveAliasHistory(&settings, normalizeSettings(saved))
 	result, err := repository.SaveSettings(settings, now())
 	if err == nil {
 		RefreshPromptSyncScheduler()
 	}
 	return hidePrivateAPIKeys(result), err
+}
+
+// preserveAliasHistory 把被移除或改名的 alias 追加到 history，供旧日志 resolve。
+func preserveAliasHistory(settings *model.Settings, saved model.Settings) {
+	oldAliases := saved.Public.ModelChannel.ModelAliases
+	newAliases := settings.Public.ModelChannel.ModelAliases
+	newSet := map[string]bool{}
+	for _, a := range newAliases {
+		newSet[strings.TrimSpace(a.Model)+"|"+strings.TrimSpace(a.DisplayName)] = true
+	}
+	existing := map[string]bool{}
+	for _, h := range settings.Public.ModelChannel.ModelAliasHistory {
+		existing[h.Model+"|"+h.DisplayName] = true
+	}
+	for _, a := range oldAliases {
+		key := strings.TrimSpace(a.Model) + "|" + strings.TrimSpace(a.DisplayName)
+		if !newSet[key] && !existing[key] && a.Model != "" && a.DisplayName != "" {
+			settings.Public.ModelChannel.ModelAliasHistory = append(settings.Public.ModelChannel.ModelAliasHistory, a)
+		}
+	}
 }
 
 func AdminChannelModels(index *int, channel model.ModelChannel) ([]string, error) {
@@ -128,7 +149,13 @@ func ModelCost(modelName string) (int, error) {
 func modelCostMatches(costModel string, requestModel string, aliases []model.ModelAlias) bool {
 	costModel = strings.TrimSpace(costModel)
 	requestModel = strings.TrimSpace(requestModel)
-	return costModel != "" && (costModel == requestModel || resolveRawPublicModelName(costModel, aliases) == requestModel || resolveRawPublicModelName(requestModel, aliases) == costModel)
+	if costModel == "" {
+		return false
+	}
+	// ponytail: 统一 resolve 到 rawModel 再比较，避免 alias 改名后匹配失败
+	rawCost := resolveRawPublicModelName(costModel, aliases)
+	rawRequest := resolveRawPublicModelName(requestModel, aliases)
+	return rawCost == rawRequest || rawCost == requestModel || rawRequest == costModel
 }
 
 func normalizePrivateSetting(setting model.PrivateSetting) model.PrivateSetting {
