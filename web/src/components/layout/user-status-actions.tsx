@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from
 import { App, Avatar, Button, Dropdown, Modal, Table, Tag, Tooltip, Typography } from "antd";
 import type { TableProps } from "antd";
 import dayjs from "dayjs";
-import { Gift, Keyboard, LogOut, Settings2, Shield } from "lucide-react";
+import { Gift, Keyboard, LogOut, MessageSquare, Settings2, Shield } from "lucide-react";
 import type { ItemType } from "antd/es/menu/interface";
 import Link from "next/link";
 
@@ -71,6 +71,7 @@ export function UserStatusActions({ showConfig = true, showVersion = false, vers
         ...(user?.role === "admin" ? [{ key: "admin", icon: <Shield className="size-4" />, label: <Link href="/admin">管理后台</Link> }] : []),
         ...(onOpenShortcuts ? [{ key: "shortcuts", icon: <Keyboard className="size-4" />, label: "快捷键", onClick: onOpenShortcuts }] : []),
         { key: "redeem", icon: <Gift className="size-4" />, label: "兑换码", onClick: () => setRedeemOpen(true) },
+        { key: "tickets", icon: <MessageSquare className="size-4" />, label: <Link href="/tickets">我的工单</Link> },
         { type: "divider" },
         { key: "logout", icon: <LogOut className="size-4" />, label: "退出登录", onClick: logout },
     ];
@@ -228,3 +229,4 @@ function CreditLogsModal({ open, onClose, token, hydrateUser, rechargeUrl }: { o
         </Modal>
     );
 }
+

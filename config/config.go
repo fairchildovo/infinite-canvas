@@ -26,6 +26,7 @@ type Config struct {
 	SystemUpdateEnabled bool   `env:"SYSTEM_UPDATE_ENABLED" envDefault:"false"`
 	SystemUpdateWorkDir string `env:"SYSTEM_UPDATE_WORK_DIR"`
 	SystemUpdateCompose string `env:"SYSTEM_UPDATE_COMPOSE_FILE" envDefault:"docker-compose.yml"`
+	SystemUpdateImage  string `env:"SYSTEM_UPDATE_IMAGE" envDefault:"ghcr.nju.edu.cn/fairchildovo/infinite-canvas:latest"`
 }
 
 var Cfg Config

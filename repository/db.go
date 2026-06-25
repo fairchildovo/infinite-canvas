@@ -1,4 +1,4 @@
-package repository
+﻿package repository
 
 import (
 	"context"
@@ -72,6 +72,8 @@ func DB() (*gorm.DB, error) {
 			&model.Coupon{},
 			&model.Announcement{},
 		&model.Release{},
+		&model.Ticket{},
+		&model.TicketReply{},
 		)
 	})
 	return db, dbErr

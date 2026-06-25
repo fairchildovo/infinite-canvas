@@ -1,4 +1,4 @@
----
+﻿---
 title: 数据库说明
 description: 当前后端主要数据表与字段说明
 ---
@@ -26,6 +26,8 @@ description: 当前后端主要数据表与字段说明
 - `settings`
 - `coupons`
 - `announcements`
+- `tickets`
+- `ticket_replies`
 
 后续新增表时再同步补充本文档，未实际使用的规划表不提前写入。
 
@@ -249,6 +251,35 @@ description: 当前后端主要数据表与字段说明
 
 
 
+
+### tickets
+
+工单表。用户提交问题反馈、功能建议、bug 报告等工单。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | string | 主键 |
+| `user_id` | string | 提交者用户 ID，索引 |
+| `assigned_to` | string | 指派管理员用户 ID，索引 |
+| `type` | string | 工单类型：`bug`、`feature`、`question`、`other` |
+| `title` | string | 工单标题 |
+| `status` | string | 状态：`open`、`in_progress`、`resolved`、`closed`，索引 |
+| `last_reply_at` | string | 最后回复时间 |
+| `created_at` | string | 创建时间 |
+| `updated_at` | string | 更新时间 |
+
+### ticket_replies
+
+工单回复表。用户和管理员在工单下的对话记录。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | string | 主键 |
+| `ticket_id` | string | 关联工单 ID，索引 |
+| `user_id` | string | 回复者用户 ID |
+| `content` | text | 回复内容 |
+| `is_staff` | bool | 是否为管理员回复 |
+| `created_at` | string | 创建时间 |
 
 ### releases
 

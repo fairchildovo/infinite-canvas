@@ -1,0 +1,149 @@
+"use client";
+
+import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { ProTable, type ProColumns } from "@ant-design/pro-components";
+import { App, Button, Flex, Input, Select, Space, Tag, Typography } from "antd";
+import dayjs from "dayjs";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import type { Ticket, TicketStatus, TicketType } from "@/services/api/tickets";
+import { useTickets } from "./use-tickets";
+
+const statusOptions = [
+    { label: "全部状态", value: "" },
+    { label: "待处理", value: "open" },
+    { label: "处理中", value: "in_progress" },
+    { label: "已解决", value: "resolved" },
+    { label: "已关闭", value: "closed" },
+];
+
+const typeOptions = [
+    { label: "全部类型", value: "" },
+    { label: "Bug", value: "bug" },
+    { label: "功能建议", value: "feature" },
+    { label: "问题反馈", value: "question" },
+    { label: "其他", value: "other" },
+];
+
+const statusLabels: Record<TicketStatus, { text: string; color: string }> = {
+    open: { text: "待处理", color: "orange" },
+    in_progress: { text: "处理中", color: "blue" },
+    resolved: { text: "已解决", color: "green" },
+    closed: { text: "已关闭", color: "default" },
+};
+
+const typeLabels: Record<TicketType, string> = {
+    bug: "Bug",
+    feature: "功能建议",
+    question: "问题反馈",
+    other: "其他",
+};
+
+export default function TicketsPage() {
+    const router = useRouter();
+    const { tickets, keyword, status, ticketType, page, pageSize, total, isLoading, searchTickets, changeStatus, changeType, changePage, changePageSize, resetFilters, refreshTickets } = useTickets();
+    const [keywordText, setKeywordText] = useState(keyword);
+
+    useEffect(() => setKeywordText(keyword), [keyword]);
+
+    const columns: ProColumns<Ticket>[] = [
+        {
+            title: "标题",
+            dataIndex: "title",
+            ellipsis: true,
+            render: (_, item) => (
+                <Typography.Link onClick={() => router.push(`/tickets/${item.id}`)}>
+                    {item.title}
+                </Typography.Link>
+            ),
+        },
+        {
+            title: "类型",
+            dataIndex: "type",
+            width: 100,
+            render: (_, item) => <Tag>{typeLabels[item.type] || item.type}</Tag>,
+        },
+        {
+            title: "状态",
+            dataIndex: "status",
+            width: 100,
+            render: (_, item) => {
+                const s = statusLabels[item.status];
+                return <Tag color={s?.color}>{s?.text || item.status}</Tag>;
+            },
+        },
+        {
+            title: "最后回复",
+            dataIndex: "lastReplyAt",
+            width: 170,
+            render: (_, item) => (
+                <Typography.Text type="secondary">
+                    {item.lastReplyAt ? dayjs(item.lastReplyAt).format("YYYY-MM-DD HH:mm") : "-"}
+                </Typography.Text>
+            ),
+        },
+        {
+            title: "创建时间",
+            dataIndex: "createdAt",
+            width: 170,
+            render: (_, item) => (
+                <Typography.Text type="secondary">
+                    {item.createdAt ? dayjs(item.createdAt).format("YYYY-MM-DD HH:mm") : "-"}
+                </Typography.Text>
+            ),
+        },
+    ];
+
+    return (
+        <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+            <Flex vertical gap={16}>
+                <Flex gap={12} wrap="wrap">
+                    <Input
+                        placeholder="搜索标题"
+                        prefix={<SearchOutlined />}
+                        value={keywordText}
+                        onChange={(e) => setKeywordText(e.target.value)}
+                        onPressEnter={() => searchTickets(keywordText)}
+                        style={{ width: 240 }}
+                        allowClear
+                    />
+                    <Select options={statusOptions} value={status} onChange={changeStatus} style={{ width: 130 }} />
+                    <Select options={typeOptions} value={ticketType} onChange={changeType} style={{ width: 130 }} />
+                    <Button onClick={resetFilters}>重置</Button>
+                </Flex>
+                <ProTable<Ticket>
+                    rowKey="id"
+                    columns={columns}
+                    dataSource={tickets}
+                    loading={isLoading}
+                    search={false}
+                    defaultSize="middle"
+                    tableLayout="fixed"
+                    cardProps={{ variant: "borderless" }}
+                    headerTitle={
+                        <Space>
+                            <Typography.Text strong>我的工单</Typography.Text>
+                            <Tag>{total} 条</Tag>
+                        </Space>
+                    }
+                    options={{ density: true, setting: true, reload: () => void refreshTickets() }}
+                    toolBarRender={() => [
+                        <Button key="new" type="primary" icon={<PlusOutlined />} onClick={() => router.push("/tickets/new")}>
+                            新建工单
+                        </Button>,
+                    ]}
+                    pagination={{
+                        current: page,
+                        pageSize,
+                        total,
+                        showSizeChanger: true,
+                        pageSizeOptions: [10, 20, 50],
+                        showTotal: (value) => `共 ${value} 条`,
+                        onChange: (nextPage, nextPageSize) => (nextPageSize !== pageSize ? changePageSize(nextPageSize) : changePage(nextPage)),
+                    }}
+                />
+            </Flex>
+        </main>
+    );
+}

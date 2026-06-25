@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"bytes"
@@ -50,6 +50,14 @@ func AdminTriggerSystemUpdate() (SystemUpdateResult, error) {
 	if err != nil {
 		return SystemUpdateResult{Stage: "precheck", Status: "unsupported", Log: "未找到 docker compose 命令"}, safeMessageError{message: "当前环境未安装 docker compose 或 docker-compose"}
 	}
+	// 用配置的镜像地址覆盖 compose 文件中的 image，确保走镜像拉取。
+	updateImage := strings.TrimSpace(config.Cfg.SystemUpdateImage)
+	if updateImage == "" {
+		updateImage = "ghcr.nju.edu.cn/fairchildovo/infinite-canvas:latest"
+	}
+	if err := os.WriteFile(composeFile, []byte(replaceImageInCompose(string(composeContent), updateImage)), 0644); err != nil {
+		return SystemUpdateResult{Stage: "precheck", Status: "failed", Log: err.Error()}, safeMessageError{message: "无法写入 compose 文件"}
+	}
 	if output, err := runUpdateCommand(ctx, workDir, composeCommand, append(composeArgs, "-f", composeFile, "pull")...); err != nil {
 		return SystemUpdateResult{Stage: "pull", Status: "failed", Log: output}, safeMessageError{message: "拉取 Docker 镜像失败：" + shortLog(output, err)}
 	}
@@ -87,6 +95,12 @@ func sanitizeUpdateLog(log string) string {
 		lines = lines[len(lines)-24:]
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+var imageLinePattern = regexp.MustCompile(`(?m)^(\s*image:\s*).*$`)
+
+func replaceImageInCompose(content string, image string) string {
+	return imageLinePattern.ReplaceAllString(content, "${1}"+image)
 }
 
 func shortLog(output string, err error) string {
