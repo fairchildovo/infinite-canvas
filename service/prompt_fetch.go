@@ -27,6 +27,9 @@ func SyncPromptCategory(category string) ([]model.PromptCategory, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(items) == 0 {
+		return nil, errors.New("解析结果为空，保留已有数据")
+	}
 	items = cachePromptImages(source.Category, items)
 	if err := repository.ReplacePromptCategory(model.PromptCategory{Category: source.Category, GithubURL: source.GithubURL}, items); err != nil {
 		return nil, err
@@ -276,18 +279,24 @@ func cachePromptImages(category string, items []model.Prompt) []model.Prompt {
 }
 
 func fetchText(rawURL string) (string, error) {
-	request, _ := http.NewRequest(http.MethodGet, rawURL, nil)
-	client := http.Client{Timeout: 30 * time.Second}
-	response, err := client.Do(request)
-	if err != nil {
-		return "", err
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		request, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+		client := http.Client{Timeout: 60 * time.Second}
+		response, err := client.Do(request)
+		if err != nil {
+			lastErr = err
+			time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+			continue
+		}
+		defer response.Body.Close()
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return "", errors.New("拉取失败: " + rawURL)
+		}
+		data, err := io.ReadAll(response.Body)
+		return string(data), err
 	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", errors.New("拉取失败: " + rawURL)
-	}
-	data, err := io.ReadAll(response.Body)
-	return string(data), err
+	return "", lastErr
 }
 
 func splitByPrefix(text, prefix string) []string {

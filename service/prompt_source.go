@@ -27,7 +27,15 @@ func SavePromptSource(source model.PromptSource) error {
 		source.CreatedAt = now
 	}
 	source.UpdatedAt = now
-	return repository.SavePromptSource(source)
+	if err := repository.SavePromptSource(source); err != nil {
+		return err
+	}
+	// 禁用时清理关联提示词
+	if !source.Enabled {
+		_ = repository.ReplacePromptCategory(model.PromptCategory{Category: source.Category}, nil)
+		_ = repository.UpdatePromptSourceSyncStatus(source.Category, source.SyncedAt, 0)
+	}
+	return nil
 }
 
 // DeletePromptSource 删除远程源及关联提示词。

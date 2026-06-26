@@ -80,5 +80,20 @@ func seedPromptSources(db *gorm.DB) error {
 			Enabled: true, CreatedAt: now, UpdatedAt: now,
 		},
 	}
-	return db.Create(&sources).Error
+	if err := db.Create(&sources).Error; err != nil {
+		return err
+	}
+	// 清理已禁用源的历史提示词
+	return cleanupDisabledSourcePrompts(db)
+}
+
+func cleanupDisabledSourcePrompts(db *gorm.DB) error {
+	var sources []model.PromptSource
+	if err := db.Where("enabled = ?", false).Find(&sources).Error; err != nil {
+		return err
+	}
+	for _, s := range sources {
+		db.Where("category = ?", s.Category).Delete(&model.Prompt{})
+	}
+	return nil
 }
