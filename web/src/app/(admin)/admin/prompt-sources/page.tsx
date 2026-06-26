@@ -15,7 +15,7 @@ const templateOptions = [
 
 const jsonPlaceholder = JSON.stringify({ dataPath: "records", title: "title", prompt: "prompt", image: "image", imageSuffix: ".jpg", tags: ["tag"], idPrefix: "source" }, null, 2);
 
-const readmePlaceholder = `{"sectionPrefix":"### ","titlePattern":"(?m)^###\\s+(.+)$","promptPattern":"(?s)\u63d0\u793a\u8bcd\\s*\\r?\\n\\s*`{3}[\\w-]*\\r?\\n(.*?)\\r?\\n`{3}","tags":["tag"],"idPrefix":"source"}`;
+const readmePlaceholder = `{"sectionPrefix":"### ","titlePattern":"(?m)^###\\s+(.+)$","promptPattern":"(?s)\u63d0\u793a\u8bcd\\s*\\r?\\n\\s*{BACKTICK}3}[\\w-]*\\r?\\n(.*?)\\r?\\n{BACKTICK}3}","tags":["tag"],"idPrefix":"source"}`.replace(/{BACKTICK}/g, `\x60`);
 
 export default function AdminPromptSourcesPage() {
     const { sources, isLoading, isSaving, isSyncing, saveSource, deleteSource, syncSource } = useAdminPromptSources();
