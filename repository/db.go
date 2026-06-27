@@ -71,6 +71,9 @@ func DB() (*gorm.DB, error) {
 		if dbErr == nil {
 			dbErr = seedPromptSources(db)
 		}
+		if dbErr == nil {
+			cleanupDisabledSourcePrompts(db)
+		}
 	})
 	return db, dbErr
 }

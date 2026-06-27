@@ -80,11 +80,7 @@ func seedPromptSources(db *gorm.DB) error {
 			Enabled: true, CreatedAt: now, UpdatedAt: now,
 		},
 	}
-	if err := db.Create(&sources).Error; err != nil {
-		return err
-	}
-	// 清理已禁用源的历史提示词
-	return cleanupDisabledSourcePrompts(db)
+	return db.Create(&sources).Error
 }
 
 func cleanupDisabledSourcePrompts(db *gorm.DB) error {
