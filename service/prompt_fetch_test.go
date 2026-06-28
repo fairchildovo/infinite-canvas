@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/basketikun/infinite-canvas/model"
 )
@@ -87,4 +89,71 @@ func TestBuildFromREADMEParsesYouMindGeneratedImage(t *testing.T) {
 	if items[0].Title != "VR 头显爆炸视图海报" {
 		t.Fatalf("title = %q", items[0].Title)
 	}
+}
+
+func TestCachePromptImagesDownloadsConcurrently(t *testing.T) {
+	var inFlight int32
+	var maxInFlight int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := atomic.AddInt32(&inFlight, 1)
+		for {
+			previous := atomic.LoadInt32(&maxInFlight)
+			if current <= previous || atomic.CompareAndSwapInt32(&maxInFlight, previous, current) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+		atomic.AddInt32(&inFlight, -1)
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("jpg"))
+	}))
+	defer server.Close()
+
+	items := make([]model.Prompt, 12)
+	for i := range items {
+		items[i] = model.Prompt{
+			ID:       leftPad(i + 1),
+			Title:    "title",
+			Prompt:   "prompt",
+			CoverURL: server.URL + "/" + leftPad(i+1) + ".jpg",
+		}
+	}
+	started := time.Now()
+	got := cachePromptImages("concurrent-test", items)
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("cachePromptImages took %s, want concurrent downloads", elapsed)
+	}
+	if atomic.LoadInt32(&maxInFlight) < 2 {
+		t.Fatalf("max concurrent downloads = %d, want > 1", maxInFlight)
+	}
+	for _, item := range got {
+		if item.CoverURL == "" || item.CoverURL[:len("/api/media/prompts/images/")] != "/api/media/prompts/images/" {
+			t.Fatalf("cover url = %q, want local prompt image path", item.CoverURL)
+		}
+	}
+}
+
+func TestPromptSyncTryLockSkipsOverlappingRun(t *testing.T) {
+	unlock, ok := tryLockPromptSync()
+	if !ok {
+		t.Fatal("first lock failed")
+	}
+	defer unlock()
+	if secondUnlock, ok := tryLockPromptSync(); ok {
+		secondUnlock()
+		t.Fatal("second lock succeeded while first lock held")
+	}
+}
+
+func TestPromptSyncTryLockReleases(t *testing.T) {
+	unlock, ok := tryLockPromptSync()
+	if !ok {
+		t.Fatal("first lock failed")
+	}
+	unlock()
+	secondUnlock, ok := tryLockPromptSync()
+	if !ok {
+		t.Fatal("lock did not release")
+	}
+	secondUnlock()
 }

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/basketikun/infinite-canvas/model"
@@ -18,10 +19,21 @@ import (
 var (
 	githubRawBase       = "https://raw.githubusercontent.com"
 	githubRawMirrorBase = "https://gh-proxy.com/https://raw.githubusercontent.com"
+	promptSyncBusy     bool
+	promptSyncBusyMu   sync.Mutex
 )
 
 // SyncPromptCategory 同步指定分类的远程提示词。
 func SyncPromptCategory(category string) ([]model.PromptCategory, error) {
+	unlock, ok := tryLockPromptSync()
+	if !ok {
+		return nil, errors.New("已有提示词同步任务正在运行，请稍后再试")
+	}
+	defer unlock()
+	return syncPromptCategory(category)
+}
+
+func syncPromptCategory(category string) ([]model.PromptCategory, error) {
 	source, ok, err := repository.GetPromptSource(category)
 	if err != nil {
 		return nil, err
@@ -42,6 +54,20 @@ func SyncPromptCategory(category string) ([]model.PromptCategory, error) {
 	}
 	_ = repository.UpdatePromptSourceSyncStatus(source.Category, time.Now().Format(time.RFC3339), len(items))
 	return repository.ListPromptCategories()
+}
+
+func tryLockPromptSync() (func(), bool) {
+	promptSyncBusyMu.Lock()
+	defer promptSyncBusyMu.Unlock()
+	if promptSyncBusy {
+		return nil, false
+	}
+	promptSyncBusy = true
+	return func() {
+		promptSyncBusyMu.Lock()
+		defer promptSyncBusyMu.Unlock()
+		promptSyncBusy = false
+	}, true
 }
 
 // buildPromptSource 根据远程源配置构建提示词列表。
@@ -261,26 +287,62 @@ func extractInlinePrompt(block, pattern string) string {
 
 // cachePromptImages 将提示词中的外部图片 URL 替换为本地缓存路径。
 func cachePromptImages(category string, items []model.Prompt) []model.Prompt {
+	type cacheJob struct {
+		index int
+		url   string
+		apply func(string)
+	}
+	var jobs []cacheJob
+	imageRe := regexp.MustCompile(`!\[\]\((https?://[^)]+)\)`)
 	for i := range items {
-		if items[i].CoverURL != "" {
-			if local, err := CachePromptImage(category, items[i].CoverURL); err == nil && local != "" {
-				items[i].CoverURL = local
+		index := i
+		if items[index].CoverURL != "" {
+			url := items[index].CoverURL
+			jobs = append(jobs, cacheJob{index: index, url: url, apply: func(local string) { items[index].CoverURL = local }})
+		}
+		if items[index].Preview != "" {
+			matches := imageRe.FindAllStringSubmatch(items[index].Preview, -1)
+			for _, match := range matches {
+				if len(match) < 2 {
+					continue
+				}
+				url := match[1]
+				jobs = append(jobs, cacheJob{index: index, url: url, apply: func(local string) {
+					items[index].Preview = strings.ReplaceAll(items[index].Preview, "![]("+url+")", "![]("+local+")")
+				}})
 			}
 		}
-		if items[i].Preview != "" {
-			re := regexp.MustCompile(`!\[\]\((https?://[^)]+)\)`)
-			items[i].Preview = re.ReplaceAllStringFunc(items[i].Preview, func(match string) string {
-				urls := re.FindStringSubmatch(match)
-				if len(urls) < 2 {
-					return match
-				}
-				if local, err := CachePromptImage(category, urls[1]); err == nil && local != "" {
-					return "![](" + local + ")"
-				}
-				return match
-			})
-		}
 	}
+	if len(jobs) == 0 {
+		return items
+	}
+
+	const workers = 8
+	limit := workers
+	if len(jobs) < limit {
+		limit = len(jobs)
+	}
+	var wg sync.WaitGroup
+	var applyMu sync.Mutex
+	jobCh := make(chan cacheJob)
+	for i := 0; i < limit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				if local, err := CachePromptImage(category, job.url); err == nil && local != "" {
+					applyMu.Lock()
+					job.apply(local)
+					applyMu.Unlock()
+				}
+			}
+		}()
+	}
+	for _, job := range jobs {
+		jobCh <- job
+	}
+	close(jobCh)
+	wg.Wait()
 	return items
 }
 
